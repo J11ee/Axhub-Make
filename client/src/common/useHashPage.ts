@@ -19,8 +19,13 @@ export interface HashPageRoutePage {
     group?: string;
 }
 
+export type HashPageTreeNode =
+    | { kind: 'group'; id: string; title: string; children: HashPageTreeNode[] }
+    | { kind: 'page'; id: string; children?: HashPageTreeNode[] };
+
 export interface HashPageRoute {
     pages: HashPageRoutePage[];
+    pageTree?: HashPageTreeNode[];
     defaultPageId: string;
 }
 
@@ -59,12 +64,13 @@ export function parseSearchPage(search: string): string | null {
 
 export function defineHashPageRoute(
     pages: HashPageRoutePage[],
-    options?: { defaultPageId?: string },
+    options?: { defaultPageId?: string; pageTree?: HashPageTreeNode[] },
 ): HashPageRoute {
     const normalizedPages = normalizeRoutePages(pages);
     const defaultPageId = normalizePageId(options?.defaultPageId);
     return {
         pages: normalizedPages,
+        ...(options?.pageTree ? { pageTree: options.pageTree } : {}),
         defaultPageId: normalizedPages.some((page) => page.id === defaultPageId)
             ? defaultPageId
             : normalizedPages[0]?.id || 'home',
@@ -73,7 +79,7 @@ export function defineHashPageRoute(
 
 function normalizeRouteInput(routeOrDefault?: HashPageRoute | string): HashPageRoute {
     if (routeOrDefault && typeof routeOrDefault === 'object') {
-        return defineHashPageRoute(routeOrDefault.pages, { defaultPageId: routeOrDefault.defaultPageId });
+        return defineHashPageRoute(routeOrDefault.pages, routeOrDefault);
     }
     const defaultPageId = normalizePageId(routeOrDefault) || 'home';
     return {
@@ -96,6 +102,7 @@ function notifyHostPrototypeRouteInfo(
     pages: HashPageRoutePage[],
     defaultPageId: string,
     activePageId: string,
+    pageTree?: HashPageTreeNode[],
 ) {
     if (
         pages.length === 0
@@ -107,6 +114,7 @@ function notifyHostPrototypeRouteInfo(
     window.parent.postMessage({
         type: 'AXHUB_PROTOTYPE_ROUTE_INFO',
         pages,
+        ...(pageTree ? { pageTree } : {}),
         defaultPageId,
         activePageId,
     }, '*');
@@ -114,8 +122,8 @@ function notifyHostPrototypeRouteInfo(
 
 export function useHashPage(routeOrDefault: HashPageRoute | string = 'home') {
     const route = normalizeRouteInput(routeOrDefault);
-    const { pages, defaultPageId } = route;
-    const routeSignature = `${defaultPageId}:${pages.map((routePage) => `${routePage.id}=${routePage.title}@${routePage.group || ''}`).join('|')}`;
+    const { pages, defaultPageId, pageTree } = route;
+    const routeSignature = JSON.stringify(route);
     const [page, setPageState] = useState<string>(() => {
         if (typeof window === 'undefined') {
             return defaultPageId;
@@ -124,7 +132,7 @@ export function useHashPage(routeOrDefault: HashPageRoute | string = 'home') {
     });
 
     useEffect(() => {
-        notifyHostPrototypeRouteInfo(pages, defaultPageId, page);
+        notifyHostPrototypeRouteInfo(pages, defaultPageId, page, pageTree);
     }, [routeSignature]);
 
     useEffect(() => {

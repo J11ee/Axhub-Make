@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import type { AnnotationDocumentDirectoryNode, AssistantContextV1, ItemData, TabType, ViewMode } from '../types';
+import type { AnnotationDocumentDirectoryNode, AssistantContextV1, ItemData, PrototypePageTreeNode, TabType, ViewMode } from '../types';
 import { useCreateDialog } from '../hooks';
 import { useAssistantPanelController } from '../domains/assistant/hooks/useAssistantPanelController';
 import { usePreviewBridgeHost, type PreviewHostContext, type ResolvedPreviewNavigateTarget } from '../domains/preview/previewBridgeHost';
@@ -131,6 +131,7 @@ interface AppInnerProps {
 
 type PrototypeRouteInfo = {
     pages: { id: string; title: string; group?: string }[];
+    pageTree?: PrototypePageTreeNode[];
     defaultPageId: string;
     activePageId: string;
 };
@@ -1280,6 +1281,7 @@ export default function IndexPage({
                     return {
                         ...item,
                         pages: nextPages,
+                        pageTree: routeInfo.pageTree,
                         defaultPageId: normalizePrototypeRoutePageId(routeInfo.defaultPageId) || nextPages[0]?.id || '',
                     };
                 }),
@@ -1291,6 +1293,7 @@ export default function IndexPage({
                 return {
                     ...previous,
                     pages: nextPages,
+                    pageTree: routeInfo.pageTree,
                     defaultPageId: normalizePrototypeRoutePageId(routeInfo.defaultPageId) || nextPages[0]?.id || '',
                 };
             });
@@ -2151,6 +2154,20 @@ export default function IndexPage({
         return nextPrototypes;
     }, [selectedItem?.name, setSelectedItem, workspace]);
 
+    const handleRefreshWorkspace = useCallback(async () => {
+        const isCanvasMode = viewMode === 'canvas';
+        const activeTreeTab = sidebarTab === 'prototype' ? 'prototypes' : sidebarTab === 'document' ? 'docs' : 'themes';
+        await Promise.allSettled([
+            workspace.loadData(),
+            workspace.reloadDocsItems(),
+            workspace.reloadSidebarAssets(),
+            workspace.loadSidebarTree(activeTreeTab, { force: true }),
+            isCanvasMode
+                ? Promise.allSettled([handleRefreshCanvasPrototypeItems(), workspace.reloadCanvasItems()])
+                : Promise.resolve(preview.handleRefreshElement()),
+        ]);
+    }, [viewMode, sidebarTab, workspace, handleRefreshCanvasPrototypeItems, preview]);
+
     const buildCanvasAssistantContext = useCallback((request: CanvasAiGenerationRequest): AssistantContextV1 => {
         const canvasFilePath = String(request.canvasFilePath || '').trim();
         const requestPrototypeItem = request.createdPrototype || selectedItem;
@@ -2608,6 +2625,7 @@ export default function IndexPage({
             cloneMakeProject: workspace.cloneMakeProject,
             copyMakeProject: workspace.copyMakeProject,
             loadProjects: workspace.loadProjects,
+            onRefreshWorkspace: handleRefreshWorkspace,
             setCreateDialogVisible,
             setInitialCreateDialogTab,
             handleTabChange: selection.handleTabChange,

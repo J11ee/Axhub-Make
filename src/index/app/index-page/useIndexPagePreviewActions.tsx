@@ -51,6 +51,7 @@ import type {
     QuickEditSaveDraft,
 } from '@/common/quickEditSave';
 import type { AnnotationDocumentDirectoryNode } from '../../types';
+import { normalizePrototypePageTree } from '../../components/sidebar/prototypePageGroups';
 import { type ExportAvailability } from '../../types/index-page.types';
 import {
     AXURE_BRIDGE_API_BASE_URL,
@@ -293,6 +294,7 @@ function normalizePrototypeRouteInfo(payload: any) {
     }
     return {
         pages,
+        pageTree: normalizePrototypePageTree(payload?.pageTree, pages),
         defaultPageId,
         activePageId,
     };

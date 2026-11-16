@@ -269,6 +269,7 @@ export interface NewSidebarActions {
         projectName?: string;
     }) => Promise<unknown>;
     onRefreshProjects: () => void | Promise<void>;
+    onRefreshWorkspace?: () => Promise<void>;
     onSidebarTreeChange: (tab: SidebarTreeTab, tree: SidebarTreeNode[]) => void;
     onSidebarTreePersist: (tab: SidebarTreeTab, tree: SidebarTreeNode[]) => void | Promise<void>;
     handleVersionManagement: (item: ItemData) => void;

@@ -96,6 +96,7 @@ export default function NewSidebar(rawProps: NewSidebarProps) {
         onCloneMakeProject,
         onCopyMakeProject,
         onRefreshProjects,
+        onRefreshWorkspace,
         handleOpenProjectInIDE,
         onPreferredIDEChange,
         isDarkMode,
@@ -210,6 +211,7 @@ export default function NewSidebar(rawProps: NewSidebarProps) {
                 onCloneMakeProject={onCloneMakeProject}
                 onCopyMakeProject={onCopyMakeProject}
                 onRefreshProjects={onRefreshProjects}
+                onRefreshWorkspace={onRefreshWorkspace}
                 tree={sidebarTrees[currentTreeTab] || []}
                 onTreeChange={(nextTree) => onSidebarTreeChange(currentTreeTab, nextTree)}
                 onTreePersist={(nextTree) => onSidebarTreePersist(currentTreeTab, nextTree)}

@@ -157,6 +157,31 @@ describe('useHashPage route definition', () => {
     ))).toHaveLength(1);
   });
 
+  it('publishes the page tree alongside the same routable pages', () => {
+    const { windowStub, parent } = createPreviewWindowStub('#page=create');
+    vi.stubGlobal('window', windowStub);
+    const route = defineHashPageRoute([
+      { id: 'list', title: '审批流管理' },
+      { id: 'create', title: '新建审批流' },
+    ], {
+      defaultPageId: 'list',
+      pageTree: [{
+        kind: 'group', id: 'config', title: '公文配置', children: [
+          { kind: 'page', id: 'list', children: [{ kind: 'page', id: 'create' }] },
+        ],
+      }],
+    });
+
+    expect(renderUseHashPage(route).page).toBe('create');
+    expect(parent.postMessage).toHaveBeenCalledWith({
+      type: 'AXHUB_PROTOTYPE_ROUTE_INFO',
+      pages: route.pages,
+      pageTree: route.pageTree,
+      defaultPageId: 'list',
+      activePageId: 'create',
+    }, '*');
+  });
+
   it('does not republish route info when a non-default iframe page switches internally and rerenders', () => {
     const { windowStub, parent, dispatch } = createPreviewWindowStub('#page=edit-prototype');
     vi.stubGlobal('window', windowStub);

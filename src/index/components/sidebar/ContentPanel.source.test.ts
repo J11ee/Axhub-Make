@@ -900,7 +900,7 @@ describe('ContentPanel prototype page children source', () => {
     );
 
     expect(source).toContain('PanelsTopLeft,');
-    expect(pageRowsSource).toContain('icon={<File className="h-3.5 w-3.5" />}');
+    expect(pageRowsSource).toContain('<File className="h-3.5 w-3.5" />');
     expect(treeNodeRenderSource).toContain("} else if (dataTab === 'prototypes') {");
     expect(treeNodeRenderSource).toContain('iconElement = <PanelsTopLeft className="h-3.5 w-3.5" />;');
   });
@@ -931,7 +931,7 @@ describe('ContentPanel prototype page children source', () => {
       source.indexOf('const renderTreeNodes ='),
     );
 
-    expect(source).toContain("import { buildPrototypePageSegments, findPrototypePageGroupKey } from './prototypePageGroups';");
+    expect(source).toContain("import { buildPrototypePageSegments, findPrototypePageAncestorKeys, getPrototypePageBranchKeys } from './prototypePageGroups';");
     expect(source).toContain('expandedPrototypePageGroups');
     expect(source).toContain('setExpandedPrototypePageGroups');
     expect(source).toContain('activePrototypePageGroupKey');
@@ -942,7 +942,8 @@ describe('ContentPanel prototype page children source', () => {
     expect(pageRowsSource).toContain('togglePrototypePageGroup(item.name, segment.key)');
     expect(pageRowsSource).toContain('ariaExpanded={expanded}');
     expect(pageRowsSource).toContain("event.key === 'Enter' || event.key === ' '");
-    expect(pageRowsSource).toContain('renderPrototypePageRow(item, page, depth + 1)');
+    expect(pageRowsSource).toContain('renderSegment(child, depth + 1)');
+    expect(pageRowsSource).toContain('branch.toggle()');
     expect(pageRowsSource).not.toContain('onTreePersist');
     expect(pageRowsSource).not.toContain('localStorage');
   });

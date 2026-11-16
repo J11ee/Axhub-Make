@@ -82,8 +82,8 @@ import { requireProjectScope, withProjectScope } from '../../services/projectSco
 import { makeClientTemplateMirrorDownloadUrl, makeClientTemplatePrimaryDownloadUrl } from '../../../common/makeClientTemplate';
 import { formatProjectRootDisplayPath } from './projectSwitcherPathDisplay';
 import { copyToClipboard } from '../../utils/clipboard';
-import { buildPrototypePageSegments, findPrototypePageGroupKey } from './prototypePageGroups';
-import type { PrototypePageItem } from './prototypePageGroups';
+import { buildPrototypePageSegments, findPrototypePageAncestorKeys, getPrototypePageBranchKeys } from './prototypePageGroups';
+import type { PrototypePageItem, PrototypePageSegment } from './prototypePageGroups';
 
 interface ContentPanelProps {
     activeTab: SidebarTab;
@@ -119,6 +119,7 @@ interface ContentPanelProps {
         projectName?: string;
     }) => Promise<unknown>;
     onRefreshProjects: () => void | Promise<void>;
+    onRefreshWorkspace?: () => void | Promise<void>;
     tree: SidebarTreeNode[];
     onTreeChange: (tree: SidebarTreeNode[]) => void;
     onTreePersist: (tree: SidebarTreeNode[]) => void | Promise<void>;
@@ -470,7 +471,7 @@ interface SidebarRowProps {
     suffix?: React.ReactNode;
     actions?: React.ReactNode;
     selected?: boolean;
-    selectedVariant?: 'filled' | 'subtle';
+    selectedVariant?: 'filled' | 'subtle' | 'accent-soft' | 'muted'; // selectedVariant?: 'filled' | 'subtle';
     editable?: boolean;
     editingValue?: string;
     inputRef?: React.Ref<HTMLInputElement>;
@@ -533,7 +534,7 @@ function SidebarRow({
                 data-document-paste-surface
                 tabIndex={0}
                 className={cn(
-                    'menu-item-wrapper group relative flex min-w-0 w-full max-w-full items-center gap-1.5 overflow-hidden rounded-md py-1 pr-2 text-left text-[12px] leading-4 transition-colors',
+                    'menu-item-wrapper group relative flex min-w-0 w-full max-w-full items-center gap-1.5 overflow-hidden rounded-md py-1 pr-2 text-left text-[12px] leading-4 transition-colors select-none',
                     className,
                     selected && selectedVariant === 'filled'
                         ? 'bg-accent text-accent-foreground font-semibold'
@@ -541,9 +542,16 @@ function SidebarRow({
                     selected && selectedVariant === 'subtle'
                         ? 'text-primary font-semibold'
                         : null,
+                    selected && selectedVariant === 'accent-soft'
+                        ? 'bg-primary/10 text-primary font-medium hover:bg-primary/15'
+                        : null,
+                    selected && selectedVariant === 'muted'
+                        ? 'bg-muted/70 text-foreground'
+                        : null,
                     !selected ? 'text-foreground hover:bg-muted/50' : null,
                     selected && 'is-selected',
                 )}
+                title={title}
                 style={{ paddingLeft }}
                 draggable={draggable}
                 onClick={onClick}
@@ -569,13 +577,21 @@ function SidebarRow({
                         className="ax-inline-rename-input min-w-0 w-0 max-w-full basis-0 flex-1"
                     />
                 ) : (
-                    <span className={cn('block min-w-0 w-0 basis-0 flex-1 truncate pr-1', titleClassName)} title={title}>
+                    <span className={cn('block min-w-0 w-0 basis-0 flex-1 truncate pr-1 select-none pointer-events-none', titleClassName)} title={title}>
                         {title}
                     </span>
                 )}
 
-                {suffix ? <div className="relative z-10 ml-auto flex shrink-0 items-center">{suffix}</div> : null}
-                {actions ? <div className={cn('relative z-10 flex shrink-0 items-center gap-0.5', !suffix && 'ml-auto')}>{actions}</div> : null}
+                {suffix ? <div className="relative z-10 ml-auto flex shrink-0 items-center pointer-events-none">{suffix}</div> : null}
+                {actions ? (
+                    <div
+                        className={cn('relative z-10 flex shrink-0 items-center gap-0.5', !suffix && 'ml-auto')}
+                        onClick={(e) => e.stopPropagation()}
+                        onDoubleClick={(e) => e.stopPropagation()}
+                    >
+                        {actions}
+                    </div>
+                ) : null}
             </div>
 
             {beforeIndicator ? (
@@ -772,6 +788,26 @@ function findNodeById(nodes: SidebarTreeNode[], nodeId: string): SidebarTreeNode
             if (found) {
                 return found;
             }
+        }
+    }
+    return null;
+}
+
+interface NodeLocation {
+    parent: SidebarTreeNode | null;
+    parentList: SidebarTreeNode[];
+    index: number;
+    node: SidebarTreeNode;
+}
+
+function findNodeLocation(nodes: SidebarTreeNode[], nodeId: string, parent: SidebarTreeNode | null = null): NodeLocation | null {
+    for (let i = 0; i < nodes.length; i += 1) {
+        if (nodes[i].id === nodeId) {
+            return { parent, parentList: nodes, index: i, node: nodes[i] };
+        }
+        if (nodes[i].kind === 'folder' && nodes[i].children?.length) {
+            const result = findNodeLocation(nodes[i].children!, nodeId, nodes[i]);
+            if (result) return result;
         }
     }
     return null;
@@ -1706,6 +1742,7 @@ export default function ContentPanel({
     onCloneMakeProject,
     onCopyMakeProject,
     onRefreshProjects,
+    onRefreshWorkspace,
     tree,
     onTreeChange,
     onTreePersist,
@@ -1800,6 +1837,89 @@ export default function ContentPanel({
     const fileDropCounterRef = useRef(0);
     const documentPanelRootRef = useRef<HTMLDivElement>(null);
     const documentPasteArmedRef = useRef(false);
+    const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
+    const [selectedPageKey, setSelectedPageKey] = useState<string | null>(null);
+    const [isRefreshing, setIsRefreshing] = useState(false);
+    const clickTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+    const lastDoubleActionRef = useRef<{ key: string; time: number }>({ key: '', time: 0 });
+    const isRecentlyDoubleAction = useCallback((key: string): boolean => {
+        const now = Date.now();
+        if (lastDoubleActionRef.current.key === key && now - lastDoubleActionRef.current.time < 350) {
+            return true;
+        }
+        lastDoubleActionRef.current = { key, time: now };
+        return false;
+    }, []);
+
+    useEffect(() => {
+        setSelectedNodeId(null);
+        setSelectedPageKey(null);
+        return () => {
+            if (clickTimeoutRef.current) {
+                clearTimeout(clickTimeoutRef.current);
+                clickTimeoutRef.current = null;
+            }
+        };
+    }, [activeTab]);
+
+    const handleRefresh = useCallback(async () => {
+        if (isRefreshing) return;
+        setIsRefreshing(true);
+        try {
+            if (onRefreshWorkspace) {
+                await onRefreshWorkspace();
+            } else if (onRefreshProjects) {
+                await onRefreshProjects();
+            }
+            toast.success('数据与画布已刷新');
+        } catch (error: any) {
+            toast.error(error?.message || '刷新失败');
+        } finally {
+            setIsRefreshing(false);
+        }
+    }, [isRefreshing, onRefreshWorkspace, onRefreshProjects]);
+
+    const handleIndentNode = useCallback((nodeId: string) => {
+        const workingTree = cloneTree(tree);
+        const loc = findNodeLocation(workingTree, nodeId);
+        if (!loc || loc.index <= 0) {
+            return;
+        }
+        const prevSibling = loc.parentList[loc.index - 1];
+        if (prevSibling.kind !== 'folder') {
+            return;
+        }
+        const [targetNode] = loc.parentList.splice(loc.index, 1);
+        if (!Array.isArray(prevSibling.children)) {
+            prevSibling.children = [];
+        }
+        prevSibling.children.push(targetNode);
+        setExpandedFolderIds((previous) => {
+            const next = new Set(previous);
+            next.add(prevSibling.id);
+            return next;
+        });
+        setSelectedNodeId(nodeId);
+        onTreeChange(workingTree);
+        void onTreePersist(workingTree);
+    }, [tree, onTreeChange, onTreePersist]);
+
+    const handleOutdentNode = useCallback((nodeId: string) => {
+        const workingTree = cloneTree(tree);
+        const loc = findNodeLocation(workingTree, nodeId);
+        if (!loc || !loc.parent) {
+            return;
+        }
+        const [targetNode] = loc.parentList.splice(loc.index, 1);
+        const parentLoc = findNodeLocation(workingTree, loc.parent.id);
+        if (!parentLoc) {
+            return;
+        }
+        parentLoc.parentList.splice(parentLoc.index + 1, 0, targetNode);
+        setSelectedNodeId(nodeId);
+        onTreeChange(workingTree);
+        void onTreePersist(workingTree);
+    }, [tree, onTreeChange, onTreePersist]);
 
     const armDocumentPasteUpload = useCallback((targetFolder: string | null = null) => {
         documentPasteArmedRef.current = true;
@@ -1900,16 +2020,16 @@ export default function ContentPanel({
         () => buildPrototypePageSegments(
             selectedPrototypeId,
             selectedItem ? getPrototypePageMatches(selectedItem) : [],
+            selectedItem?.pageTree,
         ),
-        [selectedItem?.pages, selectedPrototypeId],
+        [selectedItem?.pages, selectedItem?.pageTree, selectedPrototypeId],
     );
-    const validPrototypePageGroupKeys = useMemo(() => new Set(
-        selectedPrototypePageSegments
-            .filter((segment) => segment.kind === 'group')
-            .map((segment) => segment.key),
-    ), [selectedPrototypePageSegments]);
-    const activePrototypePageGroupKey = useMemo(
-        () => findPrototypePageGroupKey(selectedPrototypePageSegments, selectedPrototypePageId),
+    const validPrototypePageGroupKeys = useMemo(
+        () => new Set(getPrototypePageBranchKeys(selectedPrototypePageSegments)),
+        [selectedPrototypePageSegments],
+    );
+    const activePrototypePageGroupKeys = useMemo(
+        () => findPrototypePageAncestorKeys(selectedPrototypePageSegments, selectedPrototypePageId),
         [selectedPrototypePageId, selectedPrototypePageSegments],
     );
     const promptCreateEnabled = true;
@@ -1919,8 +2039,8 @@ export default function ContentPanel({
             const keys = previous.prototypeId === selectedPrototypeId
                 ? new Set([...previous.keys].filter((key) => validPrototypePageGroupKeys.has(key)))
                 : new Set<string>();
-            if (activePrototypePageGroupKey) {
-                keys.add(activePrototypePageGroupKey);
+            for (const key of activePrototypePageGroupKeys) {
+                keys.add(key);
             }
             if (
                 previous.prototypeId === selectedPrototypeId
@@ -1931,7 +2051,7 @@ export default function ContentPanel({
             }
             return { prototypeId: selectedPrototypeId, keys };
         });
-    }, [activePrototypePageGroupKey, selectedPrototypeId, selectedPrototypePageId, validPrototypePageGroupKeys]);
+    }, [activePrototypePageGroupKeys, selectedPrototypeId, selectedPrototypePageId, validPrototypePageGroupKeys]);
 
     const togglePrototypePageGroup = useCallback((prototypeId: string, groupKey: string) => {
         setExpandedPrototypePageGroups((previous) => {
@@ -2623,46 +2743,105 @@ export default function ContentPanel({
         </DropdownMenu>
     );
 
-    const renderPrototypePageRow = (item: ItemData, page: PrototypePageItem, depth: number) => (
-        <SidebarRow
-            key={`prototype-page:${item.name}:${page.id}`}
-            title={page.title}
-            icon={<File className="h-3.5 w-3.5" />}
-            actions={null}
-            selected={selectedItem?.name === item.name && selectedPrototypePageId === page.id}
-            selectedVariant="subtle"
-            paddingLeft={`${8 + depth * 8}px`}
-            className="cursor-pointer text-muted-foreground"
-            draggable={true}
-            onClick={() => {
-                void Promise.resolve(onPrototypePageSelect(item, page.id));
-            }}
-            onDragStart={(event) => {
-                const resourceId = item.resourceId || item.name;
-                const displayName = resolvePrototypePageEmbedDisplayName(item, page.title);
-                event.dataTransfer.effectAllowed = 'copy';
-                event.dataTransfer.setData('text/plain', `${item.name}:${page.id}`);
-                try {
-                    event.dataTransfer.setData(ASSISTANT_CONTEXT_DRAG_MIME, JSON.stringify(buildAssistantContextDragPayload({
-                        source: 'sidebar',
-                        resourceType: 'prototype-page',
-                        resourceId,
-                        items: buildAssistantContextItemsFromResource({
+    const renderPrototypePageRow = (
+        item: ItemData,
+        page: PrototypePageItem,
+        depth: number,
+        branch?: { expanded: boolean; toggle: () => void },
+    ) => {
+        const pageRowKey = `prototype-page:${item.name}:${page.id}`;
+        const isOpenActive = Boolean(selectedItem?.name === item.name && selectedPrototypePageId === page.id);
+        const isClickSelected = selectedPageKey === pageRowKey;
+        const pageTitleClassName = isOpenActive
+            ? 'text-emerald-600 dark:text-emerald-400 font-medium'
+            : (isClickSelected ? 'text-foreground' : undefined);
+
+        return (
+            <SidebarRow
+                key={pageRowKey}
+                title={page.title}
+                titleClassName={pageTitleClassName}
+                icon={branch ? (
+                    <div className="flex items-center gap-1">
+                        <button
+                            type="button"
+                            aria-label={`${branch.expanded ? '折叠' : '展开'}${page.title}子页`}
+                            aria-expanded={branch.expanded}
+                            className="pointer-events-auto rounded hover:bg-muted focus-visible:outline"
+                            onClick={(event) => {
+                                event.stopPropagation();
+                                branch.toggle();
+                            }}
+                            onDoubleClick={(event) => {
+                                event.stopPropagation();
+                            }}
+                        >
+                            {branch.expanded
+                                ? <ChevronDown className="h-3.5 w-3.5" />
+                                : <ChevronRight className="h-3.5 w-3.5" />}
+                        </button>
+                        <File className={cn('h-3.5 w-3.5', isOpenActive && 'text-emerald-600 dark:text-emerald-400')} />
+                    </div>
+                ) : (
+                    <div className="flex items-center gap-1">
+                        <span className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
+                        <File className={cn('h-3.5 w-3.5', isOpenActive && 'text-emerald-600 dark:text-emerald-400')} />
+                    </div>
+                )} // <File className="h-3.5 w-3.5" />
+                actions={null}
+                selected={isClickSelected}
+                selectedVariant="subtle"
+                paddingLeft={`${8 + depth * 16}px`}
+                className={cn('cursor-pointer text-muted-foreground', isClickSelected && 'bg-muted/70 text-foreground')}
+                draggable={true}
+                onClick={(e) => {
+                    setSelectedPageKey(pageRowKey);
+                    setSelectedNodeId(null);
+                    if (e.detail === 2) {
+                        if (!isRecentlyDoubleAction(pageRowKey)) {
+                            void Promise.resolve(onPrototypePageSelect(item, page.id));
+                        }
+                    }
+                }}
+                onDoubleClick={(e) => {
+                    e.stopPropagation();
+                    if (!isRecentlyDoubleAction(pageRowKey)) {
+                        void Promise.resolve(onPrototypePageSelect(item, page.id));
+                    }
+                }}
+                onKeyDown={(event) => {
+                    if (event.target === event.currentTarget && (event.key === 'Enter' || event.key === ' ')) {
+                        event.preventDefault();
+                        void Promise.resolve(onPrototypePageSelect(item, page.id));
+                    }
+                }}
+                onDragStart={(event) => {
+                    const resourceId = item.resourceId || item.name;
+                    const displayName = resolvePrototypePageEmbedDisplayName(item, page.title);
+                    event.dataTransfer.effectAllowed = 'copy';
+                    event.dataTransfer.setData('text/plain', `${item.name}:${page.id}`);
+                    try {
+                        event.dataTransfer.setData(ASSISTANT_CONTEXT_DRAG_MIME, JSON.stringify(buildAssistantContextDragPayload({
+                            source: 'sidebar',
                             resourceType: 'prototype-page',
                             resourceId,
-                            pageId: page.id,
-                            name: item.name,
-                            displayName,
-                            filePath: item.filePath,
-                            absoluteFilePath: item.absoluteFilePath,
-                        }),
-                    })));
-                } catch {
-                    // Older browsers may reject custom MIME types.
-                }
-            }}
-        />
-    );
+                            items: buildAssistantContextItemsFromResource({
+                                resourceType: 'prototype-page',
+                                resourceId,
+                                pageId: page.id,
+                                name: item.name,
+                                displayName,
+                                filePath: item.filePath,
+                                absoluteFilePath: item.absoluteFilePath,
+                            }),
+                        })));
+                    } catch {
+                        // Older browsers may reject custom MIME types.
+                    }
+                }}
+            />
+        );
+    };
 
     const renderPrototypePageRows = (item: ItemData, depth: number) => {
         const pages = getPrototypePageMatches(item);
@@ -2671,42 +2850,102 @@ export default function ContentPanel({
         }
         const segments = item.name === selectedPrototypeId
             ? selectedPrototypePageSegments
-            : buildPrototypePageSegments(item.name, pages);
+            : buildPrototypePageSegments(item.name, pages, item.pageTree);
         const expandedKeys = expandedPrototypePageGroups.prototypeId === item.name
             ? expandedPrototypePageGroups.keys
             : new Set<string>();
 
-        return segments.map((segment) => {
-            if (segment.kind === 'page') {
-                return renderPrototypePageRow(item, segment.page, depth);
-            }
+        const renderSegment = (segment: PrototypePageSegment, depth: number): React.ReactNode => {
             const expanded = expandedKeys.has(segment.key);
-            return (
-                <React.Fragment key={segment.key}>
+            const toggle = () => togglePrototypePageGroup(item.name, segment.key);
+            const isSegmentSelected = selectedPageKey === segment.key;
+            const row = segment.kind === 'page'
+                ? renderPrototypePageRow(item, segment.page, depth, segment.children.length ? { expanded, toggle } : undefined)
+                : (
                     <SidebarRow
                         title={segment.title}
-                        icon={expanded
-                            ? <ChevronDown className="h-3.5 w-3.5" />
-                            : <ChevronRight className="h-3.5 w-3.5" />}
+                        icon={(
+                            <div className="flex items-center gap-1">
+                                <button
+                                    type="button"
+                                    aria-label={`${expanded ? '折叠' : '展开'}${segment.title}`}
+                                    aria-expanded={expanded}
+                                    className="pointer-events-auto rounded hover:bg-muted focus-visible:outline"
+                                    onClick={(event) => {
+                                        event.stopPropagation();
+                                        if (clickTimeoutRef.current) {
+                                            clearTimeout(clickTimeoutRef.current);
+                                            clickTimeoutRef.current = null;
+                                        }
+                                        toggle();
+                                    }}
+                                    onDoubleClick={(event) => {
+                                        event.stopPropagation();
+                                    }}
+                                >
+                                    {expanded
+                                        ? <ChevronDown className="h-3.5 w-3.5 shrink-0" />
+                                        : <ChevronRight className="h-3.5 w-3.5 shrink-0" />}
+                                </button>
+                                <Folder className="h-3.5 w-3.5 shrink-0 text-muted-foreground/80 pointer-events-none" />
+                            </div>
+                        )}
                         actions={null}
+                        selected={isSegmentSelected}
+                        selectedVariant="muted"
                         ariaExpanded={expanded}
-                        paddingLeft={`${8 + depth * 8}px`}
-                        className="cursor-pointer text-muted-foreground"
-                        titleClassName="font-medium"
-                        onClick={() => togglePrototypePageGroup(item.name, segment.key)}
+                        paddingLeft={`${8 + depth * 16}px`}
+                        className={cn('cursor-pointer text-muted-foreground select-none', isSegmentSelected && 'bg-muted/70 text-foreground')}
+                        titleClassName={isSegmentSelected ? 'font-medium text-foreground' : 'font-medium'}
+                        onClick={(e) => {
+                            if (e.detail === 1) {
+                                if (clickTimeoutRef.current) {
+                                    clearTimeout(clickTimeoutRef.current);
+                                }
+                                clickTimeoutRef.current = setTimeout(() => {
+                                    setSelectedPageKey(segment.key);
+                                    setSelectedNodeId(null);
+                                    clickTimeoutRef.current = null;
+                                }, 200);
+                                return;
+                            }
+                            if (e.detail === 2) {
+                                if (clickTimeoutRef.current) {
+                                    clearTimeout(clickTimeoutRef.current);
+                                    clickTimeoutRef.current = null;
+                                }
+                                if (!isRecentlyDoubleAction(`segment:${segment.key}`)) {
+                                    toggle();
+                                }
+                            }
+                        }}
+                        onDoubleClick={(e) => {
+                            e.stopPropagation();
+                            if (clickTimeoutRef.current) {
+                                clearTimeout(clickTimeoutRef.current);
+                                clickTimeoutRef.current = null;
+                            }
+                            if (!isRecentlyDoubleAction(`segment:${segment.key}`)) {
+                                toggle();
+                            }
+                        }}
                         onKeyDown={(event) => {
                             if (event.key === 'Enter' || event.key === ' ') {
                                 event.preventDefault();
-                                togglePrototypePageGroup(item.name, segment.key);
+                                toggle();
                             }
                         }}
                     />
-                    {expanded
-                        ? segment.pages.map((page) => renderPrototypePageRow(item, page, depth + 1))
-                        : null}
+                );
+            return (
+                <React.Fragment key={segment.key}>
+                    {row}
+                    {expanded ? segment.children.map((child) => renderSegment(child, depth + 1)) : null}
                 </React.Fragment>
             );
-        });
+        };
+
+        return segments.map((segment) => renderSegment(segment, depth));
     };
 
     const renderTreeNodes = (nodes: SidebarTreeNode[], depth = 0): React.ReactNode => {
@@ -2740,21 +2979,17 @@ export default function ContentPanel({
             let iconElement: React.ReactNode;
             if (isFolder) {
                 iconElement = (
-                    <Button
-                        type="button"
-                        variant="ghost"
-                        size="icon-xs"
-                        className="h-4 w-4 shrink-0 p-0 text-muted-foreground hover:text-foreground"
-                        onClick={(e) => {
-                            e.stopPropagation();
-                            toggleFolder(node.id);
-                        }}
-                    >
-                        {isExpanded ? <FolderOpen className="h-4 w-4" /> : <Folder className="h-4 w-4" />}
-                    </Button>
+                    <div className="h-4 w-4 shrink-0 flex items-center justify-center pointer-events-none">
+                        {isExpanded ? (
+                            <FolderOpen className="h-4 w-4 fill-amber-400/80 text-amber-600 dark:fill-amber-500/30 dark:text-amber-400" />
+                        ) : (
+                            <Folder className="h-4 w-4 fill-amber-300/80 text-amber-500 dark:fill-amber-500/20 dark:text-amber-300" />
+                        )}
+                    </div>
                 );
             } else if (dataTab === 'prototypes') {
-                iconElement = <PanelsTopLeft className="h-3.5 w-3.5" />;
+                // iconElement = <PanelsTopLeft className="h-3.5 w-3.5" />;
+                iconElement = <PanelsTopLeft className="h-3.5 w-3.5 fill-blue-500/20 text-blue-600 dark:fill-blue-500/30 dark:text-blue-400" />;
             } else {
                 iconElement = <File className="h-3.5 w-3.5" />;
             }
@@ -2766,6 +3001,8 @@ export default function ContentPanel({
                 actionsElement = renderItemActions(item, node.id, node);
             }
 
+            const isPrototypeActive = !isFolder && dataTab === 'prototypes' && isSelected;
+
             return (
                 <div key={node.id} className="relative">
                         <SidebarRow
@@ -2773,7 +3010,8 @@ export default function ContentPanel({
                             icon={iconElement}
                             suffix={suffixElement}
                             actions={actionsElement}
-                            selected={isFolderSelected || isSelected}
+                            selected={selectedNodeId ? selectedNodeId === node.id : (isFolderSelected || isSelected)} // selected={isFolderSelected || isSelected}
+                            selectedVariant={isPrototypeActive ? 'accent-soft' : 'filled'}
                         editable={isEditingThisRow}
                         editingValue={isEditingThisFolder ? editingFolderTitle : editingItemTitle}
                         inputRef={folderInputRef}
@@ -2794,37 +3032,106 @@ export default function ContentPanel({
                                 setEditingItemTitle(value);
                             }
                         }}
-                        onClick={() => {
+                        onClick={(e) => {
                             if (isEditingThisRow) {
                                 return;
                             }
-                            if (isFolder) {
-                                if (canSelectFolders) {
-                                    if (dataTab === 'docs') {
-                                        setDocumentPasteTargetFromFolder(node);
-                                    }
-                                    const isCollapsingFolder = isExpanded;
-                                    toggleFolder(node.id);
-                                    if (!isCollapsingFolder) {
-                                        onFolderClick?.(node);
-                                    }
-                                } else {
-                                    toggleFolder(node.id);
+                            setSelectedNodeId(node.id);
+                            setSelectedPageKey(null);
+
+                            if (e.detail === 1) {
+                                if (isFolder && canSelectFolders && dataTab === 'docs') {
+                                    setDocumentPasteTargetFromFolder(node);
                                 }
                                 return;
                             }
-                            if (item) {
-                                onItemClick(item);
+
+                            if (e.detail === 2) {
+                                if (isFolder) {
+                                    if (isRecentlyDoubleAction(`folder:${node.id}`)) {
+                                        return;
+                                    }
+                                    if (canSelectFolders) {
+                                        if (dataTab === 'docs') {
+                                            setDocumentPasteTargetFromFolder(node);
+                                        }
+                                        const isCollapsingFolder = isExpanded;
+                                        toggleFolder(node.id);
+                                        if (!isCollapsingFolder) {
+                                            onFolderClick?.(node);
+                                        }
+                                    } else {
+                                        toggleFolder(node.id);
+                                    }
+                                    return;
+                                }
+                                if (item) {
+                                    if (isRecentlyDoubleAction(`item:${node.id}`)) {
+                                        return;
+                                    }
+                                    onItemClick(item);
+                                }
+                                return;
+                            }
+
+                            if (e.detail === 3) {
+                                if (isFolder) {
+                                    startFolderRename(node.id, node.title);
+                                    return;
+                                }
+                                if (item && canManageItems) {
+                                    startItemRename(node.id, node.title || item.displayName || item.name);
+                                }
+                                return;
                             }
                         }}
                         onDoubleClick={(e) => {
                             e.stopPropagation();
+                            if (isEditingThisRow) return;
                             if (isFolder) {
-                                startFolderRename(node.id, node.title);
+                                if (isRecentlyDoubleAction(`folder:${node.id}`)) {
+                                    return;
+                                }
+                                toggleFolder(node.id);
                                 return;
                             }
-                            if (item && canManageItems) {
-                                startItemRename(node.id, node.title || item.displayName || item.name);
+                            if (item) {
+                                if (isRecentlyDoubleAction(`item:${node.id}`)) {
+                                    return;
+                                }
+                                onItemClick(item);
+                                return;
+                            }
+                        }}
+                        onKeyDown={(e) => {
+                            if (isEditingThisRow) return;
+                            if (e.key === 'F2') {
+                                e.preventDefault();
+                                e.stopPropagation();
+                                if (isFolder) {
+                                    startFolderRename(node.id, node.title);
+                                } else if (item && canManageItems) {
+                                    startItemRename(node.id, node.title || item.displayName || item.name);
+                                }
+                                return;
+                            }
+                            if (e.key === 'Tab') {
+                                e.preventDefault();
+                                e.stopPropagation();
+                                if (e.shiftKey) {
+                                    handleOutdentNode(node.id);
+                                } else {
+                                    handleIndentNode(node.id);
+                                }
+                                return;
+                            }
+                            if (e.key === 'Enter' || e.key === ' ') {
+                                e.preventDefault();
+                                if (isFolder) {
+                                    toggleFolder(node.id);
+                                } else if (item) {
+                                    onItemClick(item);
+                                }
                             }
                         }}
                         onDragStart={(e) => {
@@ -3055,6 +3362,26 @@ export default function ContentPanel({
                                 </DropdownMenuItem>
                             </DropdownMenuContent>
                         </DropdownMenu>
+                    </TooltipProvider>
+
+                    <TooltipProvider>
+                        <Tooltip>
+                            <TooltipTrigger asChild>
+                                <Button
+                                    variant="ghost"
+                                    size="icon"
+                                    className="h-7 w-7"
+                                    onClick={() => void handleRefresh()}
+                                    disabled={isRefreshing}
+                                    aria-label="刷新数据与画布"
+                                >
+                                    <RefreshCw className={cn("h-4 w-4", isRefreshing && "animate-spin")} />
+                                </Button>
+                            </TooltipTrigger>
+                            <TooltipContent side="bottom">
+                                刷新数据与画布
+                            </TooltipContent>
+                        </Tooltip>
                     </TooltipProvider>
 
                     {externalOpenMenu ? (

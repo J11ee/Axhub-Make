@@ -12,6 +12,10 @@ export interface DeviceConfig {
     userAgent?: string;
 }
 
+export type PrototypePageTreeNode =
+    | { kind: 'group'; id: string; title: string; children: PrototypePageTreeNode[] }
+    | { kind: 'page'; id: string; children?: PrototypePageTreeNode[] };
+
 export interface ItemData {
     name: string;
     displayName: string;
@@ -39,6 +43,7 @@ export interface ItemData {
     generationStatus?: 'waiting';
     isReference?: boolean;
     pages?: { id: string; title: string; group?: string }[];
+    pageTree?: PrototypePageTreeNode[];
     defaultPageId?: string;
 }
 
