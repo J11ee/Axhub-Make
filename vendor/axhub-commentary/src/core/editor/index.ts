@@ -124,8 +124,8 @@ export function createCommentary(options: CommentaryInitOptions = {}): Commentar
     projectPath: resolvedProjectPath,
     getResourceContext: resolvedOptions.host.getResourceContext,
     getPersistenceScope: resolvedOptions.host.getPersistenceScope,
-    getPersistedPrototypeCommentsDocument: () =>
-      persistence?.getPersistedPrototypeCommentsDocument() ?? null,
+    getPersistedPrototypeCommentsDocument: (scope) =>
+      persistence?.getPersistedPrototypeCommentsDocument(scope) ?? null,
     buildCopyPromptOverride: resolvedOptions.host.buildCopyPrompt,
     getCommentarySkillOptions: () => resolvedOptions.ui.commentarySkillOptions,
   });
@@ -1483,7 +1483,7 @@ export function createCommentary(options: CommentaryInitOptions = {}): Commentar
     subscribeHostToolbarState,
     runHostToolbarAction,
     setNodeEditingState,
-    getCopyPromptText: () => summaries.buildCopyPrompt(),
+    getCopyPromptText: (scope) => summaries.buildCopyPrompt(scope),
     getElementPromptText: (elementKey) => summaries.buildSaveRunPromptForElementKey(elementKey),
   };
 }

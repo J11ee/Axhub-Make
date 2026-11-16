@@ -156,7 +156,7 @@ export interface EditorSummariesService {
   buildSaveRunPromptForElement(element: Element | null): string;
   buildSaveRunPromptForElementKey(elementKey: string | null | undefined): string;
   buildAppendSaveRunPromptForElement(element: Element | null): string;
-  buildCopyPrompt(): string;
+  buildCopyPrompt(scope?: 'current-page'): string;
   getCopyPromptContext(): CommentaryCopyPromptContext | null;
   getCopyPromptFilteredNotice(): string | undefined;
   getCopyPromptBlockReason(): string | undefined;
@@ -277,7 +277,7 @@ export interface EditorPersistenceService {
   persistFromTransactions(): void;
   flushPendingWrite(reason?: PrototypeEditCommentsWriteReason): void;
   restoreCachedChanges(): Promise<WebEditorElementKey[]>;
-  getPersistedPrototypeCommentsDocument(): PrototypeEditCommentsDocument | null;
+  getPersistedPrototypeCommentsDocument(scope?: 'current-page'): PrototypeEditCommentsDocument | null;
   clearCachedChanges(kind: 'text' | 'style'): void;
   clearStorage(
     scope?: CommentaryClearEditsOptions['scope'],

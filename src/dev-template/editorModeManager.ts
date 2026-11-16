@@ -91,7 +91,7 @@ export interface DevEditorsApi {
     taskRef: Partial<CommentaryExternalEditingTaskRef> | null,
     targetRef?: CommentaryExternalEditingTargetRef | null,
   ) => Promise<CommentaryExternalEditingStateResult>;
-  getCopyPromptText?: () => string;
+  getCopyPromptText?: (scope?: 'current-page') => string;
   getDecisionDataCount: () => number;
   getStatus: () => {
     mode: EditorMode;
@@ -192,7 +192,7 @@ export const createEditorModeManager = (initialMode?: EditorMode) => {
     ),
     getElementPromptText: (elementKey) => webEditorController.getElementPromptText?.(elementKey) ?? '',
     setNodeEditingState: (elementKey, nextState, taskRef, targetRef) => webEditorController.setNodeEditingState(elementKey, nextState, taskRef, targetRef ?? null),
-    getCopyPromptText: () => webEditorController.getCopyPromptText?.() ?? '',
+    getCopyPromptText: (scope) => webEditorController.getCopyPromptText?.(scope) ?? '',
     getDecisionDataCount: () => webEditorController.getDecisionDataCount(),
     getStatus: () => ({
       mode: currentMode,

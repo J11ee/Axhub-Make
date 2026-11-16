@@ -1365,8 +1365,8 @@ describe('ContentAreaView review zoom source', () => {
     expect(source).toContain('quickEditActive?: boolean;');
     expect(source).toContain("onRunPrototypePanePromptAction?: (pane: 'primary' | 'secondary', action: 'copy-prompt' | 'send-to-agent') => void | Promise<boolean>;");
     expect(source).toContain('const renderSplitPromptActions = (pane:');
-    expect(source).toContain("title=\"复制本视窗提示词\"");
-    expect(source).toContain("aria-label=\"复制本视窗提示词\"");
+    expect(source).toContain('title="复制当前页批注"');
+    expect(source).toContain('aria-label="复制当前页批注"');
     expect(source).toContain("title=\"执行本视窗批注\"");
     expect(source).toContain("aria-label=\"执行本视窗批注\"");
     expect(source).toContain('quickEditActive && onRunPrototypePanePromptAction');

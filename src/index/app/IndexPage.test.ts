@@ -629,7 +629,7 @@ describe('IndexPage source', () => {
       source.indexOf('const handleMobileItemClick'),
     );
 
-    expect(draftStateSource).toContain('const [prototypeStartDraftActive, setPrototypeStartDraftActive] = useState(false);');
+    expect(draftStateSource).toContain('const [prototypeStartDraftActive, setPrototypeStartDraftActive] = useState(() => !initialResourceDeepLink);');
     expect(draftStateSource).toContain('if (!prototypeStartDraftActive) return;');
     expect(draftStateSource).toContain("sidebarTab !== 'prototype'");
     expect(draftStateSource).toContain("viewMode !== 'demo'");

@@ -73,6 +73,8 @@ import type { ThemeResourceItem } from '../../domains/resources/resource.types';
 import OpenInDropdown from './OpenInDropdown';
 import type { ProjectListItem, ResourceWriteCapabilities } from '../../services/projectResources';
 import { getPrototypeLocalBasePath, hasExplicitLocalPath } from '../../utils/localPath';
+import { buildProjectPrototypeIframeUrl, resolvePrototypeAnnotationTargetPath } from '../../app/index-page/previewActions.helpers';
+import { buildInternalPrototypeCommentPageScope } from '../../../common/prototypeCommentPageScope';
 import { ASSISTANT_CONTEXT_DRAG_MIME, buildAssistantContextDragPayload } from '../../domains/assistant/assistantContextDrag';
 import { buildAssistantContextItemsFromResource } from '../../domains/assistant/assistantContextPayload';
 import { getClipboardImageFiles } from '../../domains/shared/clipboardImages';
@@ -471,7 +473,7 @@ interface SidebarRowProps {
     suffix?: React.ReactNode;
     actions?: React.ReactNode;
     selected?: boolean;
-    selectedVariant?: 'filled' | 'subtle' | 'accent-soft' | 'muted'; // selectedVariant?: 'filled' | 'subtle';
+    selectedVariant?: 'filled' | 'subtle' | 'accent-soft' | 'muted' | 'gray-bg'; // selectedVariant?: 'filled' | 'subtle';
     editable?: boolean;
     editingValue?: string;
     inputRef?: React.Ref<HTMLInputElement>;
@@ -485,6 +487,7 @@ interface SidebarRowProps {
     onEditingValueChange?: (value: string) => void;
     onClick?: () => void;
     onDoubleClick?: (event: React.MouseEvent<HTMLDivElement>) => void;
+    onContextMenu?: (event: React.MouseEvent<HTMLDivElement>) => void;
     onKeyDown?: (event: React.KeyboardEvent<HTMLDivElement>) => void;
     onEditClick?: (event: React.MouseEvent<HTMLInputElement>) => void;
     onEditBlur?: () => void;
@@ -516,6 +519,7 @@ function SidebarRow({
     onEditingValueChange,
     onClick,
     onDoubleClick,
+    onContextMenu,
     onKeyDown,
     onEditClick,
     onEditBlur,
@@ -548,6 +552,9 @@ function SidebarRow({
                     selected && selectedVariant === 'muted'
                         ? 'bg-muted/70 text-foreground'
                         : null,
+                    selected && selectedVariant === 'gray-bg'
+                        ? 'bg-muted/70 text-foreground'
+                        : null,
                     !selected ? 'text-foreground hover:bg-muted/50' : null,
                     selected && 'is-selected',
                 )}
@@ -556,6 +563,7 @@ function SidebarRow({
                 draggable={draggable}
                 onClick={onClick}
                 onDoubleClick={onDoubleClick}
+                onContextMenu={onContextMenu}
                 onKeyDown={onKeyDown}
                 onDragStart={onDragStart}
                 onDragOver={onDragOver}
@@ -1803,6 +1811,8 @@ export default function ContentPanel({
     const [tempTitle, setTempTitle] = useState(projectTitle);
     const titleInputRef = useRef<HTMLInputElement>(null);
     const [projectSwitcherMenuOpen, setProjectSwitcherMenuOpen] = useState(false);
+    const [openRowMenuId, setOpenRowMenuId] = useState<string | null>(null);
+    const rowContextTargetRef = useRef<HTMLDivElement | null>(null);
     const [projectSetupOpen, setProjectSetupOpen] = useState(Boolean(projectSetupRequired));
     const [projectSetupInitialMode, setProjectSetupInitialMode] = useState<'menu'>('menu');
     const [switchingProjectId, setSwitchingProjectId] = useState<string | null>(null);
@@ -2569,6 +2579,40 @@ export default function ContentPanel({
         }
     };
 
+    const openRowContextMenu = (event: React.MouseEvent<HTMLDivElement>, rowId: string) => {
+        event.preventDefault();
+        event.stopPropagation();
+        rowContextTargetRef.current = event.currentTarget;
+        setOpenRowMenuId(rowId);
+    };
+
+    const updateRowMenu = (rowId: string, open: boolean) => {
+        setOpenRowMenuId((current) => open ? rowId : current === rowId ? null : current);
+    };
+
+    const handleCopyPrototypePageContext = async (item: ItemData, pageId: string) => {
+        const targetPath = resolvePrototypeAnnotationTargetPath(item);
+        const pageScope = buildInternalPrototypeCommentPageScope(targetPath, pageId);
+        const previewUrl = buildProjectPrototypeIframeUrl(item, { hostToolbar: true }, pageId);
+        if (!pageScope || !previewUrl) {
+            toast.warning('无法确定当前页面的任务上下文');
+            return;
+        }
+        try {
+            const pageUrl = new URL(previewUrl);
+            pageUrl.searchParams.delete('editor');
+            await copyToClipboard([
+                '任务上下文:',
+                `- 页面地址: ${pageUrl}`,
+                `- 目标目录: ${targetPath}`,
+                `- 当前页面范围: ${pageScope}`,
+            ].join('\n'));
+            toast.success('任务上下文已复制');
+        } catch (error) {
+            toast.error(error instanceof Error ? error.message : '复制失败');
+        }
+    };
+
     const renderItemActions = (item: ItemData, itemNodeId: string, node?: SidebarTreeNode) => {
         const isDocItem = dataTab === 'docs';
         const isThemeItem = dataTab === 'themes';
@@ -2595,7 +2639,10 @@ export default function ContentPanel({
         };
         return (
             <>
-                <DropdownMenu>
+                <DropdownMenu
+                    open={isPrototypeItem ? openRowMenuId === itemNodeId : undefined}
+                    onOpenChange={isPrototypeItem ? (open) => updateRowMenu(itemNodeId, open) : undefined}
+                >
                     <DropdownMenuTrigger asChild>
                         <Button
                             variant="ghost"
@@ -2754,7 +2801,7 @@ export default function ContentPanel({
         const isClickSelected = selectedPageKey === pageRowKey;
         const pageTitleClassName = isOpenActive
             ? 'text-emerald-600 dark:text-emerald-400 font-medium'
-            : (isClickSelected ? 'text-foreground' : undefined);
+            : undefined;
 
         return (
             <SidebarRow
@@ -2788,12 +2835,30 @@ export default function ContentPanel({
                         <File className={cn('h-3.5 w-3.5', isOpenActive && 'text-emerald-600 dark:text-emerald-400')} />
                     </div>
                 )} // <File className="h-3.5 w-3.5" />
-                actions={null}
+                actions={(
+                    <DropdownMenu open={openRowMenuId === pageRowKey} onOpenChange={(open) => updateRowMenu(pageRowKey, open)}>
+                        <DropdownMenuTrigger className="h-4 w-0 pointer-events-none" tabIndex={-1} aria-hidden="true" />
+                        <DropdownMenuContent
+                            side="right"
+                            align="start"
+                            onCloseAutoFocus={(event) => {
+                                event.preventDefault();
+                                rowContextTargetRef.current?.focus();
+                            }}
+                        >
+                            <DropdownMenuItem onSelect={() => void handleCopyPrototypePageContext(item, page.id)}>
+                                <Copy className="mr-2 h-3.5 w-3.5" />
+                                复制任务上下文
+                            </DropdownMenuItem>
+                        </DropdownMenuContent>
+                    </DropdownMenu>
+                )}
                 selected={isClickSelected}
-                selectedVariant="subtle"
+                selectedVariant="gray-bg" // selectedVariant="subtle"
                 paddingLeft={`${8 + depth * 16}px`}
-                className={cn('cursor-pointer text-muted-foreground', isClickSelected && 'bg-muted/70 text-foreground')}
+                className="cursor-pointer"
                 draggable={true}
+                onContextMenu={(event) => openRowContextMenu(event, pageRowKey)}
                 onClick={(e) => {
                     setSelectedPageKey(pageRowKey);
                     setSelectedNodeId(null);
@@ -2892,11 +2957,11 @@ export default function ContentPanel({
                         )}
                         actions={null}
                         selected={isSegmentSelected}
-                        selectedVariant="muted"
+                        selectedVariant="gray-bg"
                         ariaExpanded={expanded}
                         paddingLeft={`${8 + depth * 16}px`}
-                        className={cn('cursor-pointer text-muted-foreground select-none', isSegmentSelected && 'bg-muted/70 text-foreground')}
-                        titleClassName={isSegmentSelected ? 'font-medium text-foreground' : 'font-medium'}
+                        className="cursor-pointer select-none"
+                        titleClassName={undefined}
                         onClick={(e) => {
                             if (e.detail === 1) {
                                 if (clickTimeoutRef.current) {
@@ -3010,6 +3075,9 @@ export default function ContentPanel({
                             icon={iconElement}
                             suffix={suffixElement}
                             actions={actionsElement}
+                            onContextMenu={item && dataTab === 'prototypes' && !isEditingThisRow
+                                ? (event) => openRowContextMenu(event, node.id)
+                                : undefined}
                             selected={selectedNodeId ? selectedNodeId === node.id : (isFolderSelected || isSelected)} // selected={isFolderSelected || isSelected}
                             selectedVariant={isPrototypeActive ? 'accent-soft' : 'filled'}
                         editable={isEditingThisRow}

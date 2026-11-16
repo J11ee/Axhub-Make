@@ -624,7 +624,7 @@ if (typeof window !== 'undefined') {
         // When clipboard:'host' is set for copy-prompt, skip iframe-side clipboard write
         // and return the prompt text so the parent window can write to clipboard.
         if (action?.type === 'copy-prompt' && action?.clipboard === 'host') {
-          const promptText = editorModeManager?.api.getCopyPromptText?.() ?? '';
+          const promptText = editorModeManager?.api.getCopyPromptText?.(action.scope) ?? '';
           const modifiedElements = editorModeManager?.api.getEditedSnapshot?.()?.modifiedElements ?? [];
           postPrototypeEditorState({
             requestId: event.data.requestId,

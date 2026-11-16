@@ -322,7 +322,7 @@ export type HostToolbarEditorsApi = {
     getHostToolbarState?: () => CommentaryHostToolbarState;
     subscribeHostToolbarState?: (listener: (state: CommentaryHostToolbarState) => void) => () => void;
     runHostToolbarAction?: (action: CommentaryHostToolbarAction) => Promise<boolean>;
-    getCopyPromptText?: () => string;
+    getCopyPromptText?: (scope?: 'current-page') => string;
     getElementPromptText?: (elementKey: string) => string;
     getEditedSnapshot?: () => CommentaryEditedSnapshot;
     getDebugState?: () => CommentaryDebugState | null;

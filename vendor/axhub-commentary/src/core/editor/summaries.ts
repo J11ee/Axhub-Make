@@ -58,6 +58,7 @@ type SaveRunCommentMeta = {
 };
 
 type CopyPromptPersistedCommentMeta = {
+  commentId: string;
   elementKey: string;
   label: string;
   locator: ElementLocator;
@@ -534,7 +535,7 @@ export function createEditorSummariesService(options: {
   projectPath?: string;
   getResourceContext?: () => CommentaryHostResource | null;
   getPersistenceScope?: () => PrototypeEditCommentsPersistenceScope | null;
-  getPersistedPrototypeCommentsDocument?: () => PrototypeEditCommentsDocument | null;
+  getPersistedPrototypeCommentsDocument?: (scope?: 'current-page') => PrototypeEditCommentsDocument | null;
   buildCopyPromptOverride?: (context: CommentaryCopyPromptContext) => string;
   getCommentarySkillOptions?: () => readonly CommentarySkillOption[];
 }): EditorSummariesService {
@@ -1058,6 +1059,7 @@ export function createEditorSummariesService(options: {
       fallbackText?: string;
       debugFileHint?: string;
       pageScope?: string;
+      commentId?: string | null;
       imageAssetPaths?: readonly string[];
       targetScreenshotAssetPath?: string;
       actions: string[];
@@ -1080,6 +1082,7 @@ export function createEditorSummariesService(options: {
       if (selectorPath) lines.push(`  - 元素定位: ${selectorPath}`);
     }
     if (params.pageScope) lines.push(`  - 页面范围: ${params.pageScope}`);
+    if (params.commentId) lines.push(`  - 批注 ID: ${params.commentId}`);
     if (params.debugFileHint) lines.push(`  - 可能相关文件: ${params.debugFileHint}`);
     const imageAssetPaths = dedupeStrings(params.imageAssetPaths ?? []);
     const targetScreenshotAssetPath = normalizePathValue(params.targetScreenshotAssetPath);
@@ -1195,9 +1198,9 @@ export function createEditorSummariesService(options: {
     return [...(meta.tweakSummaryLines ?? [])];
   }
 
-  function resolvePersistedPrototypeCommentsDocument(): PrototypeEditCommentsDocument | null {
+  function resolvePersistedPrototypeCommentsDocument(scope?: 'current-page'): PrototypeEditCommentsDocument | null {
     try {
-      const document = readPersistedPrototypeCommentsDocument();
+      const document = readPersistedPrototypeCommentsDocument(scope);
       if (
         !document ||
         document.kind !== 'prototype-edit-comments' ||
@@ -1245,12 +1248,11 @@ export function createEditorSummariesService(options: {
     return actionLines;
   }
 
-  function collectPersistedPrototypeCommentMetas(): CopyPromptPersistedCommentMeta[] {
-    const document = resolvePersistedPrototypeCommentsDocument();
-    if (!document) return [];
-    const images = Array.isArray(document.images) ? document.images : [];
-
-    return document.comments
+  function collectPersistedPrototypeCommentMetas(
+    comments: PrototypeEditCommentEntry[],
+    images: PrototypeEditCommentImageEntry[],
+  ): CopyPromptPersistedCommentMeta[] {
+    return comments
       .filter((comment) => comment.state !== 'completed')
       .map((comment) => {
         const runtimeMeta = Array.from(state.editMetaByKey.values()).find(
@@ -1261,6 +1263,7 @@ export function createEditorSummariesService(options: {
           ? resolveElementKey(element)
           : locatorKey(comment.locator));
         return {
+          commentId: comment.id,
           elementKey,
           label:
             String(runtimeMeta?.label ?? '').trim() ||
@@ -1301,20 +1304,58 @@ export function createEditorSummariesService(options: {
     );
   }
 
-  function buildDefaultCopyPrompt(): string {
-    const undoStack = getActiveTransactions();
+  function buildDefaultCopyPrompt(scope?: 'current-page'): string {
+    const currentPageOnly = scope === 'current-page';
+    const currentPageScope = resolveCurrentPageScope();
+    if (currentPageOnly && !currentPageScope) return '';
+
+    const document = resolvePersistedPrototypeCommentsDocument(scope);
+    const targetPath = resolveTargetPath()?.replace(/^\/+/, '');
+    const allowUnscoped = Boolean(targetPath && currentPageScope.replace(/^\/+/, '') === targetPath);
+    const pageComments = (document?.comments ?? []).filter((comment) => {
+      if (!currentPageOnly) return true;
+      const pageScope = normalizePathValue(comment.pageScope);
+      return pageScope ? pageScope === currentPageScope : allowUnscoped;
+    });
+    const eligibleIds = new Set(pageComments
+      .filter((comment) => !currentPageOnly ||
+        (!(Number(comment.deletedAt) > 0) && comment.state !== 'editing' && comment.state !== 'completed'))
+      .map((comment) => comment.id));
+    const blockedIds = new Set(currentPageOnly
+      ? (document?.comments ?? []).filter((comment) => !eligibleIds.has(comment.id)).map((comment) => comment.id)
+      : []);
+    const blockedKeys = new Set(Array.from(state.editMetaByKey.values())
+      .filter((meta) => meta.commentId && blockedIds.has(meta.commentId))
+      .map((meta) => String(meta.elementKey)));
+    const undoStack = getActiveTransactions().filter((transaction) =>
+      !blockedKeys.has(String(transaction.elementKey ?? locatorKey(transaction.targetLocator))),
+    );
     const summaries = aggregateTransactionsByElement(undoStack);
     const moveSummaries = collectMoveSummaries(undoStack);
-    const persistedCommentMetas = collectPersistedPrototypeCommentMetas();
+    const images = Array.isArray(document?.images) ? document.images : [];
+    const persistedCommentMetas = collectPersistedPrototypeCommentMetas(
+      pageComments.filter((comment) => eligibleIds.has(comment.id)),
+      currentPageOnly ? images.filter((image) =>
+        !(Number(image.deletedAt) > 0) && (!image.pageScope || image.pageScope === currentPageScope),
+      ) : images,
+    );
     const noteOnlyMetas = collectNoteOnlyMetas(
       new Set(summaries.map((summary) => String(summary.elementKey))),
-    );
-    const currentPageScope = resolveCurrentPageScope();
+    ).filter((meta) => !blockedKeys.has(meta.elementKey));
     const hasCurrentPageRuntimeItems =
       summaries.length > 0 || noteOnlyMetas.length > 0 || moveSummaries.length > 0;
-    const effectivePersistedCommentMetas = hasCurrentPageRuntimeItems
-      ? persistedCommentMetas.filter((meta) => !isPersistedCurrentPageMeta(meta, currentPageScope))
-      : persistedCommentMetas;
+    let effectivePersistedCommentMetas = persistedCommentMetas;
+    if (hasCurrentPageRuntimeItems) {
+      if (currentPageOnly) {
+        const runtimeCommentIds = new Set([
+          ...summaries.map((item) => item.elementKey),
+          ...noteOnlyMetas.map((item) => item.elementKey),
+        ].map((key) => state.editMetaByKey.get(key)?.commentId));
+        effectivePersistedCommentMetas = persistedCommentMetas.filter((meta) => !runtimeCommentIds.has(meta.commentId));
+      } else {
+        effectivePersistedCommentMetas = persistedCommentMetas.filter((meta) => !isPersistedCurrentPageMeta(meta, currentPageScope));
+      }
+    }
     if (
       effectivePersistedCommentMetas.length === 0 &&
       summaries.length === 0 &&
@@ -1340,8 +1381,13 @@ export function createEditorSummariesService(options: {
     lines.push('');
     appendPromptContextSection(lines, {
       includePageUrl: true,
+      includeTargetPath: currentPageOnly,
       currentFilePath,
     });
+    if (currentPageOnly) {
+      lines.push(`- 当前页面范围: ${currentPageScope}`);
+      lines.push('- 仅处理下方列出的当前页批注。需要补读批注文件时，也只使用本页对应的这些条目和附件。');
+    }
     lines.push('');
     if (isDocComment) {
       lines.push('全局约束:');
@@ -1365,6 +1411,7 @@ export function createEditorSummariesService(options: {
         fallbackLabel: meta.label,
         actions: meta.actions,
         pageScope: meta.pageScope,
+        commentId: currentPageOnly ? meta.commentId : undefined,
         imageAssetPaths: meta.imageAssetPaths,
         targetScreenshotAssetPath: meta.targetScreenshotAssetPath,
         note: meta.note,
@@ -1387,6 +1434,7 @@ export function createEditorSummariesService(options: {
           summary.netEffect.textChange?.after ?? summary.netEffect.textChange?.before ?? '',
         debugFileHint: includeDebugFileHint ? formatDebugSource(summary.debugSource) : '',
         pageScope: currentPageScope,
+        commentId: currentPageOnly ? meta?.commentId : undefined,
         imageAssetPaths,
         targetScreenshotAssetPath,
         actions,
@@ -1417,6 +1465,7 @@ export function createEditorSummariesService(options: {
           fallbackLabel: meta.label,
           actions: meta.actions,
           pageScope: currentPageScope,
+          commentId: currentPageOnly ? state.editMetaByKey.get(meta.elementKey)?.commentId : undefined,
           imageAssetPaths: meta.imageAssetPaths,
           targetScreenshotAssetPath: meta.targetScreenshotAssetPath,
           note: meta.note,
@@ -1472,8 +1521,7 @@ export function createEditorSummariesService(options: {
       }));
   }
 
-  function getCopyPromptContext(): CommentaryCopyPromptContext | null {
-    const defaultPrompt = buildDefaultCopyPrompt();
+  function getCopyPromptContext(defaultPrompt = buildDefaultCopyPrompt()): CommentaryCopyPromptContext | null {
     if (!defaultPrompt) return null;
 
     return {
@@ -1492,13 +1540,13 @@ export function createEditorSummariesService(options: {
     };
   }
 
-  function buildCopyPrompt(): string {
-    const defaultPrompt = buildDefaultCopyPrompt();
+  function buildCopyPrompt(scope?: 'current-page'): string {
+    const defaultPrompt = buildDefaultCopyPrompt(scope);
     if (!defaultPrompt) return '';
 
     if (buildCopyPromptOverride) {
       try {
-        const context = getCopyPromptContext();
+        const context = getCopyPromptContext(defaultPrompt);
         if (context) {
           return buildCopyPromptOverride(context);
         }

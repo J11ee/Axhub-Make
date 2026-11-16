@@ -86,7 +86,7 @@ export function resolvePrototypeAutoSelectionDecision({
     sidebarTrees,
     viewMode,
 }: ResolvePrototypeAutoSelectionDecisionParams): PrototypeAutoSelectionDecision {
-    if (prototypeStartDraftActive && sidebarTab === 'prototype' && viewMode === 'demo') {
+    if (prototypeStartDraftActive && !selectedItem && sidebarTab === 'prototype' && viewMode === 'demo') {
         return {
             kind: 'keep',
             markExplicitSelection: false,
@@ -319,15 +319,6 @@ export function useIndexPageSelectionSync({
                 return;
             }
             markInitialResourceDeepLinkHandled();
-        }
-
-        if (prototypeStartDraftActive && sidebarTab === 'prototype' && viewMode === 'demo') {
-            hasExplicitSelectionRef.current = false;
-            if (selectedItem !== null) {
-                setSelectedItem(null);
-            }
-            setSelectedPrototypePageId(null);
-            return;
         }
 
         const decision = resolvePrototypeAutoSelectionDecision({

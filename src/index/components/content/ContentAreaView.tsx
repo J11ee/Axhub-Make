@@ -2630,8 +2630,8 @@ export default function ContentArea({
                     variant="ghost"
                     size="icon"
                     className="h-6 w-6 rounded-md text-muted-foreground hover:text-foreground"
-                    title="复制本视窗提示词"
-                    aria-label="复制本视窗提示词"
+                    title="复制当前页批注"
+                    aria-label="复制当前页批注"
                     onClick={() => { void onRunPrototypePanePromptAction(pane, 'copy-prompt'); }}
                 >
                     <Copy className="h-3.5 w-3.5" />

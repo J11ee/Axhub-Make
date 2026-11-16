@@ -788,7 +788,7 @@ export type CommentaryHostToolbarAction =
       promptText?: string;
     } & CommentaryExternalEditingTargetRef)
   | { type: 'interrupt-agent' }
-  | { type: 'copy-prompt'; clipboard?: 'host' }
+  | { type: 'copy-prompt'; clipboard?: 'host'; scope?: 'current-page' }
   | ({ type: 'clear-edits' } & CommentaryClearEditsOptions)
   | { type: 'toggle-property-panel'; open?: boolean }
   | { type: 'set-active-agent'; agent: WebEditorAgentProvider | null }
@@ -1251,7 +1251,7 @@ export interface CommentaryApi {
   /** Stop the editor from property-panel-only mode */
   stopPanelOnly?: () => void;
   /** Get the copy prompt text without performing clipboard operations */
-  getCopyPromptText?: () => string;
+  getCopyPromptText?: (scope?: 'current-page') => string;
   /** Get the AI prompt for one edited element without including other nodes */
   getElementPromptText?: (elementKey: WebEditorElementKey) => string;
 }

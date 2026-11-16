@@ -518,9 +518,9 @@ describe('PresentationToolbar Agent host controls source', () => {
 
     expect(hostExecutionControlsSource).not.toContain("'host-copy'");
     expect(hostExecutionControlsSource).not.toContain("{ type: 'copy-prompt' }");
-    expect(hostMoreMenuSource).toContain('hostToolbarState.copyPromptVisible ? (');
-    expect(hostMoreMenuSource).toContain("{...getHostMenuActionHandlers({ type: 'copy-prompt' })}");
-    expect(hostMoreMenuSource).toContain('<Copy className={hostMenuIconClass} /> 复制提示词');
+    expect(hostMoreMenuSource).toContain('hostToolbarState.copyPromptVisible && !copyInSplitPane ? (');
+    expect(hostMoreMenuSource).toContain('{...getHostMenuActionHandlers(copyPromptAction)}');
+    expect(hostMoreMenuSource).toContain('<Copy className={hostMenuIconClass} /> {copyPromptLabel}');
   });
 
   it('lets the editor decide whether the host copy prompt action is enabled', () => {
@@ -677,7 +677,8 @@ describe('PresentationToolbar Agent host controls source', () => {
     expect(statusSource).toContain('status={quickEditAnnotationSaveStatus}');
     expect(statusSource).toContain('count={quickEditAnnotationCount}');
     expect(statusSource).toContain('copyPromptDisabled={!hostToolbarState?.copyPromptVisible || Boolean(hostToolbarState.copyPromptDisabled)}');
-    expect(statusSource).toContain("onCopyPrompt={() => runHostAction({ type: 'copy-prompt' })}");
+    expect(statusSource).toContain('onCopyPrompt={() => runHostAction(copyPromptAction)}');
+    expect(statusSource).toContain('copyInSplitPane={copyInSplitPane}');
     expect(statusSource).toContain(': null;');
     expect(statusComponentSource).toContain('absolute left-full top-1/2');
     expect(statusComponentSource).toContain('ml-4');

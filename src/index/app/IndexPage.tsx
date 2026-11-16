@@ -351,7 +351,7 @@ export default function IndexPage({
     const [viewMode, setViewMode] = useState<ViewMode>('demo');
     const [activeTab, setActiveTab] = useState<TabType>('prototypes');
     const [selectedItem, setSelectedItem] = useState<ItemData | null>(null);
-    const [prototypeStartDraftActive, setPrototypeStartDraftActive] = useState(false);
+    const [prototypeStartDraftActive, setPrototypeStartDraftActive] = useState(() => !initialResourceDeepLink);
     const [resourceStartDraftActive, setResourceStartDraftActive] = useState(false);
     const [themeStartDraftActive, setThemeStartDraftActive] = useState(false);
     const [selectedPrototypePageId, setSelectedPrototypePageId] = useState<string | null>(null);

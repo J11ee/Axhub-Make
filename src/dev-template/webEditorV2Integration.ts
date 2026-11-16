@@ -174,7 +174,7 @@ export interface WebEditorV2Controller {
   enablePanelOnly: (options?: WebEditorV2EnableOptions) => Promise<void> | void;
   disablePanelOnly: () => void;
   isPanelOnlyMode: () => boolean;
-  getCopyPromptText?: () => string;
+  getCopyPromptText?: (scope?: 'current-page') => string;
   getElementPromptText?: (elementKey: string) => string;
   getDecisionDataCount: () => number;
 }
@@ -2666,7 +2666,7 @@ export const createWebEditorV2Controller = (
       editor?.stopPanelOnly?.();
     },
     isPanelOnlyMode: () => editor?.getState().panelOnlyMode ?? false,
-    getCopyPromptText: () => editor?.getCopyPromptText?.() ?? '',
+    getCopyPromptText: (scope) => editor?.getCopyPromptText?.(scope) ?? '',
     getElementPromptText: (elementKey) => editor?.getElementPromptText?.(elementKey) ?? '',
     getDecisionDataCount: () => countPageDecisionData(),
   };

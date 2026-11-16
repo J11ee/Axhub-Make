@@ -35026,8 +35026,14 @@ function createPersistenceService(options) {
     if (cacheRestoreInProgress) return;
     writeAdapterDocument(buildCacheEntriesFromTransactions(), "state");
   }
-  function getPersistedPrototypeCommentsDocument() {
-    return buildAdapterDocument(buildCacheEntriesFromTransactions(), "changes") ?? lastAdapterDocument;
+  function getPersistedPrototypeCommentsDocument(scope) {
+    const document2 = buildAdapterDocument(buildCacheEntriesFromTransactions(), "changes") ?? lastAdapterDocument;
+    if (scope !== "current-page" || !document2 || !lastAdapterDocument) return document2;
+    const unscopedIds = new Set(lastAdapterDocument.comments.filter((comment) => !normalizePageScope(comment.pageScope)).map((comment) => comment.id));
+    return {
+      ...document2,
+      comments: document2.comments.map((comment) => unscopedIds.has(comment.id) ? { ...comment, pageScope: void 0 } : comment)
+    };
   }
   function flushPendingWrite(reason = "changes") {
     if (cacheWriteTimer !== null) {
@@ -36227,6 +36233,7 @@ ${lines.join("\n")}
       if (selectorPath) lines.push(`  - \u5143\u7D20\u5B9A\u4F4D: ${selectorPath}`);
     }
     if (params.pageScope) lines.push(`  - \u9875\u9762\u8303\u56F4: ${params.pageScope}`);
+    if (params.commentId) lines.push(`  - \u6279\u6CE8 ID: ${params.commentId}`);
     if (params.debugFileHint) lines.push(`  - \u53EF\u80FD\u76F8\u5173\u6587\u4EF6: ${params.debugFileHint}`);
     const imageAssetPaths = dedupeStrings(params.imageAssetPaths ?? []);
     const targetScreenshotAssetPath = normalizePathValue2(params.targetScreenshotAssetPath);
@@ -36306,9 +36313,9 @@ ${lines.join("\n")}
     if (!meta) return [];
     return [...meta.tweakSummaryLines ?? []];
   }
-  function resolvePersistedPrototypeCommentsDocument() {
+  function resolvePersistedPrototypeCommentsDocument(scope) {
     try {
-      const document2 = readPersistedPrototypeCommentsDocument();
+      const document2 = readPersistedPrototypeCommentsDocument(scope);
       if (!document2 || document2.kind !== "prototype-edit-comments" || !Array.isArray(document2.comments)) {
         return null;
       }
@@ -36344,17 +36351,15 @@ ${lines.join("\n")}
     }
     return actionLines;
   }
-  function collectPersistedPrototypeCommentMetas() {
-    const document2 = resolvePersistedPrototypeCommentsDocument();
-    if (!document2) return [];
-    const images = Array.isArray(document2.images) ? document2.images : [];
-    return document2.comments.filter((comment) => comment.state !== "completed").map((comment) => {
+  function collectPersistedPrototypeCommentMetas(comments, images) {
+    return comments.filter((comment) => comment.state !== "completed").map((comment) => {
       const runtimeMeta = Array.from(state2.editMetaByKey.values()).find(
         (meta) => meta.commentId === comment.id
       );
       const element = runtimeMeta ? null : locateElement(comment.locator);
       const elementKey = runtimeMeta?.elementKey || (element?.isConnected ? resolveElementKey(element) : locatorKey(comment.locator));
       return {
+        commentId: comment.id,
         elementKey,
         label: String(runtimeMeta?.label ?? "").trim() || String(comment.label ?? "").trim() || "element",
         locator: comment.locator,
@@ -36380,17 +36385,49 @@ ${lines.join("\n")}
       normalizedCurrentPageScope && normalizedPageScope === normalizedCurrentPageScope
     );
   }
-  function buildDefaultCopyPrompt() {
-    const undoStack = getActiveTransactions();
+  function buildDefaultCopyPrompt(scope) {
+    const currentPageOnly = scope === "current-page";
+    const currentPageScope = resolveCurrentPageScope();
+    if (currentPageOnly && !currentPageScope) return "";
+    const document2 = resolvePersistedPrototypeCommentsDocument(scope);
+    const targetPath = resolveTargetPath()?.replace(/^\/+/, "");
+    const allowUnscoped = Boolean(targetPath && currentPageScope.replace(/^\/+/, "") === targetPath);
+    const pageComments = (document2?.comments ?? []).filter((comment) => {
+      if (!currentPageOnly) return true;
+      const pageScope = normalizePathValue2(comment.pageScope);
+      return pageScope ? pageScope === currentPageScope : allowUnscoped;
+    });
+    const eligibleIds = new Set(pageComments.filter((comment) => !currentPageOnly || !(Number(comment.deletedAt) > 0) && comment.state !== "editing" && comment.state !== "completed").map((comment) => comment.id));
+    const blockedIds = new Set(currentPageOnly ? (document2?.comments ?? []).filter((comment) => !eligibleIds.has(comment.id)).map((comment) => comment.id) : []);
+    const blockedKeys = new Set(Array.from(state2.editMetaByKey.values()).filter((meta) => meta.commentId && blockedIds.has(meta.commentId)).map((meta) => String(meta.elementKey)));
+    const undoStack = getActiveTransactions().filter(
+      (transaction) => !blockedKeys.has(String(transaction.elementKey ?? locatorKey(transaction.targetLocator)))
+    );
     const summaries = aggregateTransactionsByElement(undoStack);
     const moveSummaries = collectMoveSummaries(undoStack);
-    const persistedCommentMetas = collectPersistedPrototypeCommentMetas();
+    const images = Array.isArray(document2?.images) ? document2.images : [];
+    const persistedCommentMetas = collectPersistedPrototypeCommentMetas(
+      pageComments.filter((comment) => eligibleIds.has(comment.id)),
+      currentPageOnly ? images.filter(
+        (image) => !(Number(image.deletedAt) > 0) && (!image.pageScope || image.pageScope === currentPageScope)
+      ) : images
+    );
     const noteOnlyMetas = collectNoteOnlyMetas(
       new Set(summaries.map((summary) => String(summary.elementKey)))
-    );
-    const currentPageScope = resolveCurrentPageScope();
+    ).filter((meta) => !blockedKeys.has(meta.elementKey));
     const hasCurrentPageRuntimeItems = summaries.length > 0 || noteOnlyMetas.length > 0 || moveSummaries.length > 0;
-    const effectivePersistedCommentMetas = hasCurrentPageRuntimeItems ? persistedCommentMetas.filter((meta) => !isPersistedCurrentPageMeta(meta, currentPageScope)) : persistedCommentMetas;
+    let effectivePersistedCommentMetas = persistedCommentMetas;
+    if (hasCurrentPageRuntimeItems) {
+      if (currentPageOnly) {
+        const runtimeCommentIds = new Set([
+          ...summaries.map((item) => item.elementKey),
+          ...noteOnlyMetas.map((item) => item.elementKey)
+        ].map((key) => state2.editMetaByKey.get(key)?.commentId));
+        effectivePersistedCommentMetas = persistedCommentMetas.filter((meta) => !runtimeCommentIds.has(meta.commentId));
+      } else {
+        effectivePersistedCommentMetas = persistedCommentMetas.filter((meta) => !isPersistedCurrentPageMeta(meta, currentPageScope));
+      }
+    }
     if (effectivePersistedCommentMetas.length === 0 && summaries.length === 0 && noteOnlyMetas.length === 0 && moveSummaries.length === 0) {
       return "";
     }
@@ -36407,8 +36444,13 @@ ${lines.join("\n")}
     lines.push("");
     appendPromptContextSection(lines, {
       includePageUrl: true,
+      includeTargetPath: currentPageOnly,
       currentFilePath
     });
+    if (currentPageOnly) {
+      lines.push(`- \u5F53\u524D\u9875\u9762\u8303\u56F4: ${currentPageScope}`);
+      lines.push("- \u4EC5\u5904\u7406\u4E0B\u65B9\u5217\u51FA\u7684\u5F53\u524D\u9875\u6279\u6CE8\u3002\u9700\u8981\u8865\u8BFB\u6279\u6CE8\u6587\u4EF6\u65F6\uFF0C\u4E5F\u53EA\u4F7F\u7528\u672C\u9875\u5BF9\u5E94\u7684\u8FD9\u4E9B\u6761\u76EE\u548C\u9644\u4EF6\u3002");
+    }
     lines.push("");
     if (isDocComment) {
       lines.push("\u5168\u5C40\u7EA6\u675F:");
@@ -36430,6 +36472,7 @@ ${lines.join("\n")}
         fallbackLabel: meta.label,
         actions: meta.actions,
         pageScope: meta.pageScope,
+        commentId: currentPageOnly ? meta.commentId : void 0,
         imageAssetPaths: meta.imageAssetPaths,
         targetScreenshotAssetPath: meta.targetScreenshotAssetPath,
         note: meta.note
@@ -36449,6 +36492,7 @@ ${lines.join("\n")}
         fallbackText: summary.netEffect.textChange?.after ?? summary.netEffect.textChange?.before ?? "",
         debugFileHint: includeDebugFileHint ? formatDebugSource(summary.debugSource) : "",
         pageScope: currentPageScope,
+        commentId: currentPageOnly ? meta?.commentId : void 0,
         imageAssetPaths,
         targetScreenshotAssetPath,
         actions,
@@ -36471,6 +36515,7 @@ ${lines.join("\n")}
           fallbackLabel: meta.label,
           actions: meta.actions,
           pageScope: currentPageScope,
+          commentId: currentPageOnly ? state2.editMetaByKey.get(meta.elementKey)?.commentId : void 0,
           imageAssetPaths: meta.imageAssetPaths,
           targetScreenshotAssetPath: meta.targetScreenshotAssetPath,
           note: meta.note
@@ -36518,8 +36563,7 @@ ${lines.join("\n")}
       changeKinds: meta.changeKinds.slice()
     }));
   }
-  function getCopyPromptContext() {
-    const defaultPrompt = buildDefaultCopyPrompt();
+  function getCopyPromptContext(defaultPrompt = buildDefaultCopyPrompt()) {
     if (!defaultPrompt) return null;
     return {
       resource: resolveResourceContext(),
@@ -36536,12 +36580,12 @@ ${lines.join("\n")}
       defaultPrompt
     };
   }
-  function buildCopyPrompt() {
-    const defaultPrompt = buildDefaultCopyPrompt();
+  function buildCopyPrompt(scope) {
+    const defaultPrompt = buildDefaultCopyPrompt(scope);
     if (!defaultPrompt) return "";
     if (buildCopyPromptOverride) {
       try {
-        const context = getCopyPromptContext();
+        const context = getCopyPromptContext(defaultPrompt);
         if (context) {
           return buildCopyPromptOverride(context);
         }
@@ -37044,7 +37088,7 @@ function createCommentary(options = {}) {
     projectPath: resolvedProjectPath,
     getResourceContext: resolvedOptions.host.getResourceContext,
     getPersistenceScope: resolvedOptions.host.getPersistenceScope,
-    getPersistedPrototypeCommentsDocument: () => persistence?.getPersistedPrototypeCommentsDocument() ?? null,
+    getPersistedPrototypeCommentsDocument: (scope) => persistence?.getPersistedPrototypeCommentsDocument(scope) ?? null,
     buildCopyPromptOverride: resolvedOptions.host.buildCopyPrompt,
     getCommentarySkillOptions: () => resolvedOptions.ui.commentarySkillOptions
   });
@@ -38166,7 +38210,7 @@ function createCommentary(options = {}) {
     subscribeHostToolbarState,
     runHostToolbarAction,
     setNodeEditingState,
-    getCopyPromptText: () => summaries.buildCopyPrompt(),
+    getCopyPromptText: (scope) => summaries.buildCopyPrompt(scope),
     getElementPromptText: (elementKey) => summaries.buildSaveRunPromptForElementKey(elementKey)
   };
 }

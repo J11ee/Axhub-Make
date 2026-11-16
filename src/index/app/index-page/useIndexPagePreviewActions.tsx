@@ -221,7 +221,7 @@ function getAnnotationActionPromptText(
         return action.promptText;
     }
     if (action?.type !== 'send-to-agent') {
-        return editors?.getCopyPromptText?.();
+        return editors?.getCopyPromptText?.(action?.type === 'copy-prompt' ? action.scope : undefined);
     }
     const elementKey = String(action.elementKey || '').trim();
     if (!elementKey) {
@@ -1759,9 +1759,9 @@ export function useIndexPagePreviewActions(params: any) {
         setAnnotationAssistantToolbarState,
     ]);
 
-    const copyHostToolbarPromptText = useCallback(async (promptText: string | null | undefined) => {
+    const copyHostToolbarPromptText = useCallback(async (promptText: string | null | undefined, currentPage = false) => {
         if (!promptText) {
-            messageApi.info('没有可复制的提示词内容');
+            messageApi.info(currentPage ? '当前页没有待处理批注' : '没有可复制的提示词内容');
             return true;
         }
         try {
@@ -2005,6 +2005,7 @@ export function useIndexPagePreviewActions(params: any) {
             : {
                 type: 'copy-prompt',
                 clipboard: 'host',
+                ...(action?.type === 'copy-prompt' && action.scope ? { scope: action.scope } : {}),
             });
         return {
             promptText: bridgeResult?.promptText ?? '',
@@ -2039,10 +2040,10 @@ export function useIndexPagePreviewActions(params: any) {
     ): Promise<boolean> => {
         const prompt = await collectPrototypePrompt(
             pane,
-            action === 'send-to-agent' ? { type: 'send-to-agent' } : null,
+            action === 'send-to-agent' ? { type: 'send-to-agent' } : { type: 'copy-prompt', scope: 'current-page' },
         );
         if (action === 'copy-prompt') {
-            return copyHostToolbarPromptText(prompt.promptText);
+            return copyHostToolbarPromptText(prompt.promptText, true);
         }
         return runAnnotationAcpChatPrompt(prompt);
     }, [
@@ -2244,6 +2245,14 @@ export function useIndexPagePreviewActions(params: any) {
                     }
 
                     if (nextAction.type === 'copy-prompt') {
+                        if (nextAction.scope === 'current-page') {
+                            if (previewConfig.previewMode === 'split') {
+                                messageApi.info('请在左侧或右侧预览中复制当前页批注');
+                                return true;
+                            }
+                            const prompt = await collectPrototypePrompt('primary', nextAction);
+                            return copyHostToolbarPromptText(prompt.promptText, true);
+                        }
                         if (previewConfig.previewMode === 'split') {
                             const combinedPrompt = buildCombinedPrototypePrompt(await collectSplitPrototypePrompts());
                             return copyHostToolbarPromptText(combinedPrompt);

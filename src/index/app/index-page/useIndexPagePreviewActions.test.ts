@@ -1727,11 +1727,13 @@ describe('useIndexPagePreviewActions source', () => {
       'const runQuickEditSaveAction = useCallback',
     );
 
-    expect(source).toContain('getCopyPromptText?: () => string;');
+    expect(source).toContain("getCopyPromptText?: (scope?: 'current-page') => string;");
     expect(runHostToolbarActionSource).toContain("nextAction.type === 'copy-prompt'");
     expect(runHostToolbarActionSource).toContain('const promptText = editors?.getCopyPromptText?.();');
     expect(runHostToolbarActionSource).toContain('return copyHostToolbarPromptText(promptText);');
     expect(runHostToolbarActionSource).toContain('clipboard: \'host\'');
+    expect(runHostToolbarActionSource).toContain("collectPrototypePrompt('primary', nextAction)");
+    expect(source).toContain("{ type: 'copy-prompt', scope: 'current-page' }");
     expect(runHostToolbarActionSource).not.toContain("nextAction.type === 'copy-prompt' && !editors?.runHostToolbarAction");
   });
 

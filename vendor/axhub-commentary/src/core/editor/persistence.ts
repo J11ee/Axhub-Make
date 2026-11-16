@@ -1650,8 +1650,20 @@ export function createPersistenceService(options: {
     writeAdapterDocument(buildCacheEntriesFromTransactions(), 'state');
   }
 
-  function getPersistedPrototypeCommentsDocument(): PrototypeEditCommentsDocument | null {
-    return buildAdapterDocument(buildCacheEntriesFromTransactions(), 'changes') ?? lastAdapterDocument;
+  function getPersistedPrototypeCommentsDocument(scope?: 'current-page'): PrototypeEditCommentsDocument | null {
+    const document = buildAdapterDocument(buildCacheEntriesFromTransactions(), 'changes') ?? lastAdapterDocument;
+    if (scope !== 'current-page' || !document || !lastAdapterDocument) return document;
+
+    // A restored legacy edit can match the DOM without proving which page it belongs to.
+    const unscopedIds = new Set(lastAdapterDocument.comments
+      .filter((comment) => !normalizePageScope(comment.pageScope))
+      .map((comment) => comment.id));
+    return {
+      ...document,
+      comments: document.comments.map((comment) => unscopedIds.has(comment.id)
+        ? { ...comment, pageScope: undefined }
+        : comment),
+    };
   }
 
   function flushPendingWrite(reason: PrototypeEditCommentsWriteReason = 'changes'): void {

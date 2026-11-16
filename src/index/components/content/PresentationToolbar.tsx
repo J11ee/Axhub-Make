@@ -97,11 +97,15 @@ function QuickEditAnnotationSaveStatus({
     count,
     copyPromptDisabled,
     onCopyPrompt,
+    copyPromptLabel,
+    copyInSplitPane,
 }: {
     status: CommentaryAnnotationSaveStatus;
     count: number;
     copyPromptDisabled: boolean;
     onCopyPrompt: () => void;
+    copyPromptLabel: string;
+    copyInSplitPane: boolean;
 }) {
     const visibleStatus = useSmoothedAnnotationSaveStatus(status);
     const label = `${QUICK_EDIT_ANNOTATION_SAVE_STATUS_LABELS[visibleStatus]} · ${count} 条`;
@@ -145,17 +149,21 @@ function QuickEditAnnotationSaveStatus({
                                 <div className="flex flex-wrap items-center gap-1.5 text-xs font-medium text-foreground">
                                     复制提示词给 AI
                                 </div>
-                                <p className="mt-1 whitespace-nowrap text-xs leading-5 text-muted-foreground">
-                                    <button
-                                        type="button"
-                                        disabled={copyPromptDisabled}
-                                        onClick={onCopyPrompt}
-                                        className="font-medium text-primary underline decoration-primary/40 underline-offset-4 transition-colors hover:text-primary/80 disabled:cursor-not-allowed disabled:text-muted-foreground disabled:no-underline"
-                                    >
-                                        复制提示词
-                                    </button>
-                                    <span>，再粘贴到 AI 输入框中发送。</span>
-                                </p>
+                                {copyInSplitPane ? (
+                                    <p className="mt-1 text-xs leading-5 text-muted-foreground">在要处理的预览窗口中复制当前页批注。</p>
+                                ) : (
+                                    <p className="mt-1 whitespace-nowrap text-xs leading-5 text-muted-foreground">
+                                        <button
+                                            type="button"
+                                            disabled={copyPromptDisabled}
+                                            onClick={onCopyPrompt}
+                                            className="font-medium text-primary underline decoration-primary/40 underline-offset-4 transition-colors hover:text-primary/80 disabled:cursor-not-allowed disabled:text-muted-foreground disabled:no-underline"
+                                        >
+                                            {copyPromptLabel}
+                                        </button>
+                                        <span>，再粘贴到 AI 输入框中发送。</span>
+                                    </p>
+                                )}
                             </div>
                         </div>
                         <div className="flex items-start gap-2.5">
@@ -588,6 +596,12 @@ export default function PresentationToolbar({
         && !docEditState.enabled;
     const showHostSelectionModeAction = !isDocumentCommentActive;
     const isDocumentCommentToolbarActive = isDocumentCommentActive || (isHtmlDocumentEditingContent && isQuickEditActive);
+    const copyCurrentPrototypePage = isPreviewContent && isQuickEditActive;
+    const copyInSplitPane = copyCurrentPrototypePage && isSplitQuickEditActive;
+    const copyPromptLabel = copyCurrentPrototypePage ? '复制当前页批注' : '复制提示词';
+    const copyPromptAction: CommentaryHostToolbarAction = copyCurrentPrototypePage
+        ? { type: 'copy-prompt', scope: 'current-page' }
+        : { type: 'copy-prompt' };
     const showHostPropertyPanelAction = contentMode !== 'theme' && !isDocumentCommentToolbarActive;
     const showHostPropertyPanelToolbarAction = showHostPropertyPanelAction && canShowPrototypeDecisionActions;
     const showHostPropertyPanelMenuAction = contentMode !== 'theme' && (isDocumentCommentToolbarActive || !canShowPrototypeDecisionActions);
@@ -880,15 +894,15 @@ export default function PresentationToolbar({
                             >
                                 <Settings2 className={hostMenuIconClass} /> AI 设置
                             </button>
-                            {hostToolbarState.copyPromptVisible ? (
+                            {hostToolbarState.copyPromptVisible && !copyInSplitPane ? (
                                 <button
                                     type="button"
                                     role="menuitem"
                                     disabled={hostToolbarState.copyPromptDisabled}
-                                    {...getHostMenuActionHandlers({ type: 'copy-prompt' })}
+                                    {...getHostMenuActionHandlers(copyPromptAction)}
                                     className={hostMenuItemClass}
                                 >
-                                    <Copy className={hostMenuIconClass} /> 复制提示词
+                                    <Copy className={hostMenuIconClass} /> {copyPromptLabel}
                                 </button>
                             ) : null}
                             {hostToolbarState.captureTargetScreenshotAvailable ? (
@@ -1095,7 +1109,9 @@ export default function PresentationToolbar({
             status={quickEditAnnotationSaveStatus}
             count={quickEditAnnotationCount}
             copyPromptDisabled={!hostToolbarState?.copyPromptVisible || Boolean(hostToolbarState.copyPromptDisabled)}
-            onCopyPrompt={() => runHostAction({ type: 'copy-prompt' })}
+            onCopyPrompt={() => runHostAction(copyPromptAction)}
+            copyPromptLabel={copyPromptLabel}
+            copyInSplitPane={copyInSplitPane}
         />
     ) : null;
     const activeQuickEditToolbarButtons = (

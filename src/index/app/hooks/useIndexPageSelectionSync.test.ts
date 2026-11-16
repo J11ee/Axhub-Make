@@ -248,6 +248,27 @@ describe('useIndexPageSelectionSync source', () => {
     });
   });
 
+  it('keeps a manually opened prototype while the start draft is closing', () => {
+    const firstPrototype = createPrototype('first-prototype');
+    const openedPrototype = createPrototype('opened-prototype');
+
+    expect(resolvePrototypeAutoSelectionDecision({
+      activeTab: 'prototypes',
+      hasExplicitSelection: true,
+      items: [firstPrototype, openedPrototype],
+      lastCanvasItem: null,
+      selectedItem: openedPrototype,
+      sidebarTab: 'prototype',
+      sidebarTrees: {
+        prototypes: [createItemNode(firstPrototype.name), createItemNode(openedPrototype.name)],
+        docs: [],
+        canvas: [],
+      },
+      viewMode: 'demo',
+      prototypeStartDraftActive: true,
+    })).toMatchObject({ kind: 'keep', markExplicitSelection: true });
+  });
+
   it('switches an implicit fallback selection to the first sidebar prototype after the tree loads', () => {
     const metadataFirstPrototype = createPrototype('annotation-demo', '标注演示');
     const sidebarFirstPrototype = createPrototype('beginner-guide', '新手指导');
