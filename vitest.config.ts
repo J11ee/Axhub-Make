@@ -1,5 +1,6 @@
 import path from 'node:path';
 import { defineConfig } from 'vitest/config';
+import { makeRichMarkdownEditorVitePlugin } from './src/spec-template/makeRichMarkdownEditorVitePlugin';
 
 const coverageScope = process.env.AXHUB_MAKE_COVERAGE_SCOPE || 'all';
 const coverageInclude = coverageScope === 'server'
@@ -7,6 +8,7 @@ const coverageInclude = coverageScope === 'server'
   : ['src/**/*.{ts,tsx}'];
 
 export default defineConfig({
+  plugins: [makeRichMarkdownEditorVitePlugin()],
   resolve: {
     alias: {
       '@': path.resolve(__dirname, 'src'),

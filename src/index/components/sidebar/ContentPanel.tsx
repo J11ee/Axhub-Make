@@ -122,6 +122,7 @@ interface ContentPanelProps {
     }) => Promise<unknown>;
     onRefreshProjects: () => void | Promise<void>;
     onRefreshWorkspace?: () => void | Promise<void>;
+    onOpenCurrentPagePrd?: () => void;
     tree: SidebarTreeNode[];
     onTreeChange: (tree: SidebarTreeNode[]) => void;
     onTreePersist: (tree: SidebarTreeNode[]) => void | Promise<void>;
@@ -1751,6 +1752,7 @@ export default function ContentPanel({
     onCopyMakeProject,
     onRefreshProjects,
     onRefreshWorkspace,
+    onOpenCurrentPagePrd,
     tree,
     onTreeChange,
     onTreePersist,
@@ -3451,6 +3453,17 @@ export default function ContentPanel({
                             </TooltipContent>
                         </Tooltip>
                     </TooltipProvider>
+
+                    {onOpenCurrentPagePrd && (
+                        <Button
+                            variant="ghost"
+                            size="sm"
+                            className="h-7 shrink-0 px-2"
+                            onClick={onOpenCurrentPagePrd}
+                        >
+                            需求 PRD
+                        </Button>
+                    )}
 
                     {externalOpenMenu ? (
                         <div className="flex items-center gap-1">

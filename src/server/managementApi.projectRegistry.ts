@@ -637,7 +637,7 @@ function normalizeProjectDocumentRequestPath(value: string): string {
   return normalized;
 }
 
-function isResolvedProjectPathSafe(projectRoot: string, candidatePath: string): boolean {
+export function isResolvedProjectPathSafe(projectRoot: string, candidatePath: string): boolean {
   try {
     const realProjectRoot = fs.realpathSync.native(projectRoot);
     let existingPath = candidatePath;
@@ -652,7 +652,7 @@ function isResolvedProjectPathSafe(projectRoot: string, candidatePath: string): 
   }
 }
 
-function resolveProjectDocumentContentFile(projectRoot: string, requestedPath: string): {
+export function resolveProjectDocumentContentFile(projectRoot: string, requestedPath: string): {
   path: string;
   projectRelativePath: string;
 } | null {

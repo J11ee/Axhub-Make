@@ -12,6 +12,8 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/comp
 import { cn } from '@/lib/utils';
 import { Bot, Check, ChevronDown, ChevronRight, FileCode2, FileText, Folder, Pencil, Plus, TextCursorInput, Trash2, X } from 'lucide-react';
 import type { AnnotationDocumentDirectoryNode } from '../../types';
+import PagePrdManagement, { collectManagedMarkdown, type PagePrdManagementProps } from './PagePrdManagement';
+import { getActivePagePrdPaths } from '../../../common/pagePrd';
 export type { AnnotationDocumentDirectoryNode } from '../../types';
 
 export interface DocumentManagementDialogProps {
@@ -26,6 +28,7 @@ export interface DocumentManagementDialogProps {
     onDeleteDocument: (node: AnnotationDocumentDirectoryNode) => void | Promise<void>;
     onCopyPrompt: () => void | Promise<void>;
     promptCopying?: boolean;
+    pagePrds?: PagePrdManagementProps;
 }
 
 function cloneTree(nodes: AnnotationDocumentDirectoryNode[]): AnnotationDocumentDirectoryNode[] {
@@ -147,6 +150,7 @@ export function DocumentRow({
     onDelete,
     onDragStart,
     onDrop,
+    hiddenIds,
 }: {
     node: AnnotationDocumentDirectoryNode;
     depth: number;
@@ -157,11 +161,13 @@ export function DocumentRow({
     onDelete: (node: AnnotationDocumentDirectoryNode) => void;
     onDragStart: (node: AnnotationDocumentDirectoryNode) => void;
     onDrop: (target: AnnotationDocumentDirectoryNode) => void;
+    hiddenIds?: Set<string>;
 }) {
     const isFolder = node.type === 'folder';
     const isExpanded = expanded.has(node.id);
     const [renaming, setRenaming] = useState(false);
     const [renameValue, setRenameValue] = useState(node.title);
+    if (hiddenIds?.has(node.id)) return null;
 
     const cancelRename = () => {
         setRenameValue(node.title);
@@ -302,6 +308,7 @@ export function DocumentRow({
                             onDelete={onDelete}
                             onDragStart={onDragStart}
                             onDrop={onDrop}
+                            hiddenIds={hiddenIds}
                         />
                     ))}
                 </div>
@@ -322,10 +329,14 @@ export default function DocumentManagementDialog({
     onDeleteDocument,
     onCopyPrompt,
     promptCopying = false,
+    pagePrds,
 }: DocumentManagementDialogProps) {
     const [expanded, setExpanded] = useState<Set<string>>(() => new Set());
     const [draggingNodeId, setDraggingNodeId] = useState<string | null>(null);
     const visibleTree = useMemo(() => resolveVisibleDocumentTree(tree || []), [tree]);
+    const markdownDocuments = pagePrds ? collectManagedMarkdown(tree, pagePrds.scope) : [];
+    const boundPaths = pagePrds ? getActivePagePrdPaths(pagePrds.pages, pagePrds.records) : new Set<string>();
+    const hiddenIds = new Set(markdownDocuments.filter((doc) => boundPaths.has(doc.path)).map((doc) => doc.id));
 
     useEffect(() => {
         if (open) {
@@ -409,8 +420,13 @@ export default function DocumentManagementDialog({
                         <Bot className="h-4 w-4" /> AI 管理文档
                     </Button>
                 </div>
+                <div className="max-h-[56vh] space-y-3 overflow-y-auto">
+                {pagePrds && !loading ? <PagePrdManagement {...pagePrds} documents={markdownDocuments.filter((doc) => !hiddenIds.has(doc.id))} onOpen={(id, edit) => {
+                    onOpenChange(false);
+                    pagePrds.onOpen(id, edit);
+                }} /> : null}
                 <div
-                    className={cn('max-h-[46vh] min-h-[180px] overflow-y-auto rounded-md border p-2', draggingNodeId && 'border-primary/50 bg-primary/5')}
+                    className={cn('min-h-[180px] rounded-md border p-2', draggingNodeId && 'border-primary/50 bg-primary/5')}
                     onDragOver={(event) => event.preventDefault()}
                     onDrop={handleDropToRoot}
                 >
@@ -435,10 +451,12 @@ export default function DocumentManagementDialog({
                             onDelete={(documentNode) => { void onDeleteDocument(documentNode); }}
                             onDragStart={(dragged) => setDraggingNodeId(dragged.id)}
                             onDrop={(target) => { void handleDrop(target); }}
+                            hiddenIds={hiddenIds}
                         />
                     )) : (
                         <div className="flex h-40 items-center justify-center text-sm text-muted-foreground">暂无标注文档</div>
                     )}
+                </div>
                 </div>
                 </DialogContent>
             </Dialog>

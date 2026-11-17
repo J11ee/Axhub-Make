@@ -101,7 +101,9 @@ function renderViewer(props: React.ComponentProps<typeof MarkdownViewer>) {
 export function renderMarkdown(markdownContent: string, documentUrl?: string) {
   try {
     currentDocumentUrl = documentUrl || '';
-    renderViewer({ content: markdownContent, documentUrl });
+    const mode = new URLSearchParams(window.location.search).get('embeddedDocument');
+    const embeddedDocument = window.parent !== window && (mode === 'page' || mode === 'ordinary') ? mode : undefined;
+    renderViewer({ content: markdownContent, documentUrl, embeddedDocument });
     console.log('[Spec Template] Markdown 已渲染');
   } catch (err) {
     console.error('[Spec Template] 渲染失败:', err);

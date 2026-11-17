@@ -78,7 +78,7 @@ describe('spec-template quick editing regression boundary', () => {
     expect(viewerSource).toContain('axhub-markdown-docs');
     expect(viewerSource).toContain('BroadcastChannel');
     expect(viewerSource).toContain("type: 'markdown-file-saved'");
-    expect(viewerSource).toContain('resolveSavedMarkdownFilePath(currentDoc.url)');
+    expect(viewerSource).toContain('resolveSavedMarkdownFilePath(liveCurrentDoc.url)');
     expect(viewerSource).toContain('path: savedMarkdownPath');
     expect(viewerSource).toContain('updatedAt: Date.now()');
   });
@@ -173,7 +173,9 @@ describe('spec-template quick editing regression boundary', () => {
     expect(viewerSource).toContain('getHostToolbarState');
     expect(viewerSource).toContain('subscribeHostToolbarState');
     expect(viewerSource).toContain('runHostToolbarAction');
-    expect(viewerSource).toContain('SimpleEditor');
+    expect(viewerSource).toContain('PrdMarkdownEditor');
+    const prdEditorSource = readSpecTemplateSource('PrdMarkdownEditor.tsx');
+    expect(prdEditorSource).toContain('<SimpleEditor {...props}');
     expect(viewerSource).toContain('contentType="markdown"');
     expect(viewerSource).toContain('toolbarPreset="full"');
     expect(viewerSource).toContain('imageUpload={uploadImageToCurrentDoc}');

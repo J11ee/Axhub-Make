@@ -88,6 +88,7 @@ interface UseIndexPageSidebarPropsBuilderParams {
         }) => Promise<unknown>;
         loadProjects: () => void | Promise<void>;
         onRefreshWorkspace?: () => Promise<void>;
+        onOpenCurrentPagePrd?: () => void;
         setCreateDialogVisible: Dispatch<SetStateAction<boolean>>;
         setInitialCreateDialogTab: Dispatch<SetStateAction<CreateDialogTab>>;
         handleTabChange: (tab: TabType) => void;
@@ -285,6 +286,7 @@ export function useIndexPageSidebarPropsBuilder({
             },
             onRefreshProjects: deps.loadProjects,
             onRefreshWorkspace: deps.onRefreshWorkspace,
+            onOpenCurrentPagePrd: deps.onOpenCurrentPagePrd,
             onSidebarTreeChange: deps.resources.handleSidebarTreeChange,
             onSidebarTreePersist: deps.resources.handleSidebarTreePersist,
             handleVersionManagement: deps.resources.handleVersionManagement,

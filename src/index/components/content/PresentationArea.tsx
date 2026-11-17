@@ -108,6 +108,7 @@ export default function PresentationArea(rawProps: PresentationAreaProps) {
                     handleEnablePrototypeAnnotation={props.handleEnablePrototypeAnnotation}
                     handleCopyPrototypeAnnotationPrompt={props.handleCopyPrototypeAnnotationPrompt}
                     annotationDocuments={props.annotationDocuments}
+                    pagePrdManagement={props.pagePrdManagement}
                     annotationDocumentsLoading={props.annotationDocumentsLoading}
                     handleLoadPrototypeAnnotationDocuments={props.handleLoadPrototypeAnnotationDocuments}
                     handleCreatePrototypeAnnotationDocument={props.handleCreatePrototypeAnnotationDocument}

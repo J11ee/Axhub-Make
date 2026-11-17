@@ -81,6 +81,7 @@ import PrototypeVersionPopover from '../PrototypeVersionPopover';
 import ResponsiveSidebarTriggerButton from '../sidebar/ResponsiveSidebarTriggerButton';
 import { useSmoothedAnnotationSaveStatus } from './useSmoothedAnnotationSaveStatus';
 import DocumentManagementDialog from './DocumentManagementDialog';
+import type { PagePrdManagementProps } from './PagePrdManagement';
 
 const QUICK_EDIT_ANNOTATION_SAVE_STATUS_LABELS = {
     saving: '正在保存',
@@ -313,6 +314,7 @@ interface PresentationToolbarProps {
     handleEnablePrototypeAnnotation: () => Promise<boolean>;
     handleCopyPrototypeAnnotationPrompt: () => void | Promise<void>;
     annotationDocuments?: AnnotationDocumentDirectoryNode[];
+    pagePrdManagement?: PagePrdManagementProps;
     annotationDocumentsLoading?: boolean;
     handleLoadPrototypeAnnotationDocuments?: () => void | Promise<void>;
     handleCreatePrototypeAnnotationDocument?: (folderId?: string | null) => void | Promise<void>;
@@ -418,6 +420,7 @@ export default function PresentationToolbar({
     handleEnablePrototypeAnnotation,
     handleCopyPrototypeAnnotationPrompt: copyPrototypeAnnotationPrompt,
     annotationDocuments = [],
+    pagePrdManagement,
     annotationDocumentsLoading = false,
     handleLoadPrototypeAnnotationDocuments,
     handleCreatePrototypeAnnotationDocument,
@@ -1054,6 +1057,21 @@ export default function PresentationToolbar({
             },
         )
     ) : null;
+    const documentManagementControl = (
+        <Button
+            type="button"
+            variant="ghost"
+            size="xs"
+            className={toolbarTextButtonClass}
+            aria-label="文档管理"
+            onClick={() => {
+                setDocumentManagementOpen(true);
+                void handleLoadPrototypeAnnotationDocuments?.();
+            }}
+        >
+            <FileText /> 文档管理
+        </Button>
+    );
     const hostToolToolbarControls = hostToolbarState?.visible ? (
         <>
             {renderHostToolbarActionButton(
@@ -1068,22 +1086,7 @@ export default function PresentationToolbar({
                     tooltip: selectionModeTooltip,
                 },
             )}
-            {prototypeAnnotationSessionActive ? (
-                <Button
-                    key="host-document-management"
-                    type="button"
-                    variant="ghost"
-                    size="xs"
-                    className={toolbarTextButtonClass}
-                    aria-label="文档管理"
-                    onClick={() => {
-                        setDocumentManagementOpen(true);
-                        void handleLoadPrototypeAnnotationDocuments?.();
-                    }}
-                >
-                    <FileText /> 文档管理
-                </Button>
-            ) : null}
+            {prototypeAnnotationSessionActive ? documentManagementControl : null}
             {showHostPropertyPanelToolbarAction && !publishedAnnotationSession ? renderHostToolbarActionButton(
                 'host-panel',
                 '设计决策',
@@ -1819,6 +1822,7 @@ export default function PresentationToolbar({
             <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2">
                 <div className="flex items-center gap-1 [&>*]:self-center text-[12px]">
                     {actionButtons}
+                    {pagePrdManagement && isPreviewContent && !prototypeAnnotationSessionActive ? documentManagementControl : null}
                 </div>
             </div>
 
@@ -1871,6 +1875,7 @@ export default function PresentationToolbar({
                 open={documentManagementOpen}
                 onOpenChange={setDocumentManagementOpen}
                 tree={annotationDocuments}
+                pagePrds={pagePrdManagement}
                 loading={annotationDocumentsLoading}
                 onTreeChange={(nextTree) => handlePrototypeAnnotationDocumentTreeChange?.(nextTree)}
                 onTreePersist={(nextTree) => handlePersistPrototypeAnnotationDocumentTree?.(nextTree)}

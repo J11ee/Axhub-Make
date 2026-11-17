@@ -108,6 +108,7 @@ tmp-midscene/
 client/.local-image-*.png
 src/**/*.js
 src/**/*.d.ts
+!src/spec-template/makeRichMarkdownEditorDependencies.d.ts
 client/vite-plugins/**/*.js
 vite.config.js
 

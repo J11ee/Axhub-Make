@@ -31,6 +31,7 @@ import type {
 import { createQuickEditRequestRegistry } from '../common/quickEditRequestRegistry';
 import { normalizeMakeServerOrigin } from '../common/makeServerOrigin';
 import { isTrustedPrototypeEditorParentEvent as matchesTrustedPrototypeEditorParent } from './prototypeEditorBridgeTrust';
+import { installPagePrdRuntimeBridge } from './pagePrdRuntime';
 import type {
   QuickEditSaveAction,
   QuickEditSaveCommitResult,
@@ -417,6 +418,7 @@ function readPrototypeEditorBridgeCommentPageScope(data: any): string | undefine
 if (typeof window !== 'undefined') {
   // 解析 URL 参数
   const urlParams = new URLSearchParams(window.location.search);
+  if (!isPublishedAnnotationRoute() && !urlParams.has('publishedShareId')) installPagePrdRuntimeBridge();
 
   // 1. 处理 root 尺寸比例参数 (例如: ?scale=0.5 或 ?width=800&height=600)
   const scale = urlParams.get('scale');

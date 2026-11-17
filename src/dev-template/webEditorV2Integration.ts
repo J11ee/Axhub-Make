@@ -47,6 +47,7 @@ import { buildMakeServerApiUrl, normalizeMakeServerOrigin } from '../common/make
 import {
   isAnnotationRuntimeSourceReplaceMessage,
 } from '../common/annotationRuntimeBridge';
+import { PAGE_PRD_SOURCE_CHANGED } from '../common/pagePrd';
 import { normalizeSkillSource } from '../index/utils/skillPath';
 import {
   readPublishedCommenterName,
@@ -594,6 +595,7 @@ async function replaceRuntimeAnnotationSource(source: AnnotationSourceDocument):
   };
   const scheduleRefresh = () => {
     refreshRuntime();
+    globalThis.window?.dispatchEvent?.(new Event(PAGE_PRD_SOURCE_CHANGED));
     const scheduleTimeout = typeof window !== 'undefined' && typeof window.setTimeout === 'function'
       ? window.setTimeout.bind(window)
       : typeof globalThis.setTimeout === 'function'

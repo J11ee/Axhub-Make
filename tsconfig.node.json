@@ -11,6 +11,7 @@
   },
   "include": [
     "vite.config.ts",
+    "src/spec-template/makeRichMarkdownEditorVitePlugin.ts",
     "client/vite-plugins/annotationSourceMarkdown.ts",
     "client/vite-plugins/utils/moduleSpecifierQuery.ts",
     "src/server/**/*",

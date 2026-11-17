@@ -270,6 +270,7 @@ export interface NewSidebarActions {
     }) => Promise<unknown>;
     onRefreshProjects: () => void | Promise<void>;
     onRefreshWorkspace?: () => Promise<void>;
+    onOpenCurrentPagePrd?: () => void;
     onSidebarTreeChange: (tab: SidebarTreeTab, tree: SidebarTreeNode[]) => void;
     onSidebarTreePersist: (tab: SidebarTreeTab, tree: SidebarTreeNode[]) => void | Promise<void>;
     handleVersionManagement: (item: ItemData) => void;
@@ -368,6 +369,7 @@ export interface PresentationAreaState {
     docsItems?: ItemData[];
     sidebarTrees?: Partial<Record<SidebarTreeTab, SidebarTreeNode[]>>;
     annotationDocuments?: AnnotationDocumentDirectoryNode[];
+    pagePrdManagement?: import('../components/content/PagePrdManagement').PagePrdManagementProps;
     annotationDocumentsLoading?: boolean;
     selectedDoc?: ItemData | null;
     selectedResourceFolder?: SelectedResourceFolder | null;

@@ -37,6 +37,52 @@ afterEach(() => {
 });
 
 describe('prototype annotation API', () => {
+  it('creates page PRD content on save and references existing Markdown without copying it', async () => {
+    const root = createTempRoot('axhub-make-page-prd-');
+    writePrototypeProject(root);
+    const docs = path.join(root, 'src/prototypes/home/docs');
+    fs.mkdirSync(docs, { recursive: true });
+    fs.writeFileSync(path.join(docs, 'existing.md'), 'Original Markdown');
+    const server = await startActivatedProjectServer(root);
+    const endpoint = (pageId?: string) => scopeProjectApiUrl(root,
+      `${server.origin}/api/prototype-annotation/page-prd?targetPath=prototypes/home${pageId ? `&pageId=${pageId}` : ''}`);
+    const write = (pageId: string, body: object) => fetch(endpoint(pageId), {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+    });
+    try {
+      expect(await (await fetch(endpoint('alpha'))).json()).toEqual({ content: '' });
+      expect(fs.existsSync(path.join(docs, 'page-prd'))).toBe(false);
+      const created = await write('alpha', { content: '| A |\n| - |\n| B |' });
+      expect(created.status).toBe(200);
+      const { path: savedPath } = await created.json();
+      const existingPath = 'src/prototypes/home/docs/existing.md';
+      expect((await write('beta', { documentPath: existingPath })).status).toBe(200);
+      expect((await write('gamma', { documentPath: existingPath })).status).toBe(400);
+      expect((await write('gamma', { documentPath: '../outside.md' })).status).toBe(400);
+      const nativeContentUrl = `${server.origin}/api/projects/${path.basename(root)}/document-content?path=${encodeURIComponent(existingPath)}`;
+      const nativeSave = await fetch(nativeContentUrl, {
+        method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ content: 'Edited in native editor' }),
+      });
+      expect(nativeSave.ok).toBe(true);
+      expect((await (await fetch(endpoint())).json()).pages).toMatchObject({
+        alpha: { path: savedPath, content: '| A |\n| - |\n| B |' },
+        beta: { path: existingPath, content: 'Edited in native editor' },
+      });
+      const update = await write('beta', { content: 'Updated by an external Agent' });
+      expect(update.status).toBe(200);
+      expect(await update.json()).toEqual({ success: true, path: existingPath });
+      expect(await (await fetch(endpoint('beta'))).json()).toEqual({
+        path: existingPath, content: 'Updated by an external Agent', missing: false,
+      });
+      expect((await (await fetch(endpoint())).json()).pages.beta.content).toBe('Updated by an external Agent');
+      expect(fs.readFileSync(path.join(docs, 'existing.md'), 'utf8')).toBe('Updated by an external Agent');
+      expect(fs.readdirSync(path.join(docs, 'page-prd'))).toEqual(['alpha.md']);
+      expect(fs.existsSync(path.join(docs, '../annotation-source.json'))).toBe(false);
+    } finally {
+      await server.close();
+    }
+  });
+
   it('reports annotation injection status for official template prototypes', async () => {
     const projectRoot = createTempRoot('axhub-make-prototype-annotation-');
     writePrototypeProject(projectRoot);

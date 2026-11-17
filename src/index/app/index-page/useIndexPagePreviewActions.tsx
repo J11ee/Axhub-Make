@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type SetStateAction } from 'react';
 import { toast } from 'sonner';
+import { PAGE_PRD_CONFIGURE, PAGE_PRD_READY, PAGE_PRD_SAVED, pagePrdUrl, type PagePrdConfiguration, type PagePrdRecords } from '../../../common/pagePrd';
+import { buildPrototypePageSegments } from '../../components/sidebar/prototypePageGroups';
 import { copyImageDataUrlToClipboard, copyToClipboard, writeFigmaOfficialClipboardPayload } from '../../utils/clipboard';
 import { buildEditorUrl, buildItemUrl, buildLANItemUrl } from '../../utils/url';
 import { generateSvgContent, svgToPng } from '../../utils/svg';
@@ -401,6 +403,7 @@ export function useIndexPagePreviewActions(params: any) {
     const [prototypeAnnotationStatusLoading, setPrototypeAnnotationStatusLoading] = useState(false);
     const [prototypeAnnotationPromptCopying, setPrototypeAnnotationPromptCopying] = useState(false);
     const [prototypeAnnotationDocuments, setPrototypeAnnotationDocuments] = useState<AnnotationDocumentDirectoryNode[]>([]);
+    const [pagePrdRecords, setPagePrdRecords] = useState<PagePrdRecords>({});
     const [prototypeAnnotationDocumentsLoading, setPrototypeAnnotationDocumentsLoading] = useState(false);
     const [docEditState, setDocEditState] = useState(createDefaultMarkdownQuickEditState);
     const [markdownPromptCopying, setMarkdownPromptCopying] = useState(false);
@@ -585,9 +588,33 @@ export function useIndexPagePreviewActions(params: any) {
     const selectedPrototypeIdentity = useMemo(() => resolveSelectedPrototypeIdentity(selectedItem), [selectedItem]);
     const selectedPrototypeProjectKey = String(selectedItem?.projectId || projectId || '').trim();
     const selectedPrototypeContextKey = `${selectedPrototypeProjectKey}:${selectedPrototypeIdentity}`;
+    const pagePrdTarget = contentMode === 'preview' && !selectedItem?.isReference && !selectedItem?.placeholder
+        ? resolvePrototypeAnnotationTargetPath(selectedItem) : '';
+    const prdPages = useMemo(() => pagePrdTarget && selectedItem
+        ? buildPrototypePageSegments(pagePrdTarget, selectedItem.pages?.length ? selectedItem.pages : [
+            { id: selectedItem.defaultPageId || 'home', title: selectedItem.displayName || selectedItem.name },
+        ], selectedItem.pageTree)
+        : [], [pagePrdTarget, selectedItem?.pages, selectedItem?.pageTree, selectedItem?.defaultPageId, selectedItem?.displayName, selectedItem?.name]);
+    const defaultPrdPageId = selectedItem?.defaultPageId || 'home';
+    const configurePagePrd = useCallback((iframe: HTMLIFrameElement, options?: { reload?: boolean; selection?: PagePrdConfiguration['selection'] }) => {
+        if (!pagePrdTarget || !selectedPrototypeProjectKey) return;
+        postToPreview({
+            type: PAGE_PRD_CONFIGURE,
+            projectId: selectedPrototypeProjectKey,
+            targetPath: pagePrdTarget,
+            makeOrigin: window.location.origin,
+            pages: prdPages,
+            defaultPageId: defaultPrdPageId,
+            ...options,
+        }, iframe);
+    }, [pagePrdTarget, selectedPrototypeProjectKey, prdPages, defaultPrdPageId, postToPreview]);
+    useEffect(() => {
+        getPreviewIframes().forEach((iframe) => configurePagePrd(iframe));
+    }, [getPreviewIframes, configurePagePrd]);
     useEffect(() => {
         setPrototypeAnnotationDocuments([]);
         setPrototypeAnnotationDocumentsLoading(false);
+        setPagePrdRecords({});
     }, [selectedPrototypeContextKey]);
     const selectedPrototypeIdentityRef = useRef(selectedPrototypeIdentity);
     activeReviewScopeKeyRef.current = `${projectId || ''}:${selectedPrototypeIdentity || ''}`;
@@ -1233,6 +1260,7 @@ export function useIndexPagePreviewActions(params: any) {
             primaryIframe,
         );
         markPreviewIframeLoaded(loadedIframe);
+        if (loadedIframe) configurePagePrd(loadedIframe);
         if (loadedIframe && loadedIframe !== primaryIframe) {
             if (quickEditRuntimeActiveRef.current) {
                 void enterPrototypeEditor(loadedIframe, { showMissingWarning: false });
@@ -1316,6 +1344,7 @@ export function useIndexPagePreviewActions(params: any) {
         assistantContextAppendAvailable,
         beginQuickEditRuntimeHandshake,
         clearQuickEditRuntimeTimeout,
+        configurePagePrd,
         currentDocumentIsHtml,
         docEditState.quickEditMode,
         enterPrototypeEditor,
@@ -4215,6 +4244,65 @@ export function useIndexPagePreviewActions(params: any) {
         setPrototypeAnnotationDocuments(Array.isArray(nodes) ? nodes as AnnotationDocumentDirectoryNode[] : []);
     }, []);
 
+    const loadPagePrdRecords = useCallback(async () => {
+        if (!pagePrdTarget || !selectedPrototypeProjectKey) return;
+        const response = await fetch(pagePrdUrl({ projectId: selectedPrototypeProjectKey, targetPath: pagePrdTarget }));
+        if (!response.ok) throw new Error('读取页面 PRD 失败');
+        const result: { pages: PagePrdRecords; source: unknown } = await response.json();
+        setPagePrdRecords(result.pages);
+        setPrototypeAnnotationDocumentsFromSource(result.source);
+    }, [pagePrdTarget, selectedPrototypeProjectKey, setPrototypeAnnotationDocumentsFromSource]);
+
+    useEffect(() => {
+        const onPagePrdMessage = (event: MessageEvent) => {
+            if (event.data?.type !== PAGE_PRD_READY && event.data?.type !== PAGE_PRD_SAVED) return;
+            const iframe = getPreviewIframes().find((item) => item.contentWindow === event.source && getIframeOrigin(item) === event.origin);
+            if (!iframe) return;
+            if (event.data.type === PAGE_PRD_READY) {
+                configurePagePrd(iframe);
+                return;
+            }
+            if (event.data.projectId !== selectedPrototypeProjectKey || event.data.targetPath !== pagePrdTarget) return;
+            void loadPagePrdRecords().catch((error: unknown) => console.error('[Axhub] 页面 PRD 刷新失败:', error));
+            getPreviewIframes().filter((item) => item !== iframe).forEach((item) => configurePagePrd(item, { reload: true }));
+        };
+        window.addEventListener('message', onPagePrdMessage);
+        return () => window.removeEventListener('message', onPagePrdMessage);
+    }, [configurePagePrd, getIframeOrigin, getPreviewIframes, loadPagePrdRecords, pagePrdTarget, selectedPrototypeProjectKey]);
+
+    useEffect(() => {
+        if (!pagePrdTarget || !selectedPrototypeProjectKey) return;
+        const refresh = () => {
+            getPreviewIframes().forEach((iframe) => configurePagePrd(iframe, { reload: true }));
+        };
+        window.addEventListener('focus', refresh);
+        return () => window.removeEventListener('focus', refresh);
+    }, [configurePagePrd, getPreviewIframes, pagePrdTarget, selectedPrototypeProjectKey]);
+
+    const handleBindPagePrd = useCallback(async (pageId: string, documentPath: string) => {
+        const response = await fetch(pagePrdUrl({ projectId: selectedPrototypeProjectKey, targetPath: pagePrdTarget }, pageId), {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ documentPath }),
+        });
+        if (!response.ok) {
+            const payload = await response.json().catch(() => null);
+            throw new Error(payload?.error || '关联页面 PRD 失败');
+        }
+        await loadPagePrdRecords();
+        getPreviewIframes().forEach((iframe) => configurePagePrd(iframe, { reload: true }));
+    }, [configurePagePrd, getPreviewIframes, loadPagePrdRecords, pagePrdTarget, selectedPrototypeProjectKey]);
+
+    const handleOpenPagePrd = useCallback((id: string, edit: boolean) => {
+        const iframe = getPrimaryPreviewIframe();
+        if (iframe) configurePagePrd(iframe, { reload: true, selection: { id, edit } });
+    }, [configurePagePrd, getPrimaryPreviewIframe]);
+
+    const handleOpenCurrentPagePrd = useCallback(() => {
+        const iframe = getPrimaryPreviewIframe();
+        if (iframe) configurePagePrd(iframe, { reload: true, selection: { current: true } });
+    }, [configurePagePrd, getPrimaryPreviewIframe]);
+
     const replaceMountedPrototypeAnnotationSource = useCallback((source: unknown): boolean => {
         if (!prototypeAnnotationSessionActive) return false;
         return replacePreviewAnnotationRuntimeSource(
@@ -4234,13 +4322,14 @@ export function useIndexPagePreviewActions(params: any) {
         try {
             const status = await apiService.getPrototypeAnnotationStatus(targetPath, requireProjectScope(projectId));
             setPrototypeAnnotationDocumentsFromSource(status.source);
+            await loadPagePrdRecords();
         } catch (error) {
             console.error('[Axhub] 读取标注文档失败:', error);
             messageApi.error('读取标注文档失败，请稍后重试');
         } finally {
             setPrototypeAnnotationDocumentsLoading(false);
         }
-    }, [messageApi, projectId, selectedItem, setPrototypeAnnotationDocumentsFromSource]);
+    }, [loadPagePrdRecords, messageApi, projectId, selectedItem, setPrototypeAnnotationDocumentsFromSource]);
 
     const mutatePrototypeAnnotationDocuments = useCallback(async (
         payload: Record<string, unknown>,
@@ -4263,6 +4352,7 @@ export function useIndexPagePreviewActions(params: any) {
                 throw new Error(result?.error || '管理标注文档失败');
             }
             setPrototypeAnnotationDocumentsFromSource(result.source);
+            getPreviewIframes().forEach((iframe) => configurePagePrd(iframe, { reload: true }));
             if (!result.source || !replaceMountedPrototypeAnnotationSource(result.source)) {
                 handleRefreshElement();
             }
@@ -4274,6 +4364,8 @@ export function useIndexPagePreviewActions(params: any) {
             setPrototypeAnnotationDocumentsLoading(false);
         }
     }, [
+        configurePagePrd,
+        getPreviewIframes,
         handleRefreshElement,
         messageApi,
         projectId,
@@ -5392,6 +5484,14 @@ export function useIndexPagePreviewActions(params: any) {
         prototypeAnnotationSessionActive,
         prototypeAnnotationPromptCopying,
         prototypeAnnotationDocuments,
+        onOpenCurrentPagePrd: pagePrdTarget && selectedPrototypeProjectKey ? handleOpenCurrentPagePrd : undefined,
+        pagePrdManagement: pagePrdTarget ? {
+            scope: { projectId: selectedPrototypeProjectKey, targetPath: pagePrdTarget },
+            pages: prdPages,
+            records: pagePrdRecords,
+            onBind: handleBindPagePrd,
+            onOpen: handleOpenPagePrd,
+        } : undefined,
         prototypeAnnotationDocumentsLoading,
         handleLoadPrototypeAnnotationDocuments,
         handleCreatePrototypeAnnotationDocument,

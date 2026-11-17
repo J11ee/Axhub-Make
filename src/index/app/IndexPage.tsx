@@ -2626,6 +2626,7 @@ export default function IndexPage({
             copyMakeProject: workspace.copyMakeProject,
             loadProjects: workspace.loadProjects,
             onRefreshWorkspace: handleRefreshWorkspace,
+            onOpenCurrentPagePrd: preview.onOpenCurrentPagePrd,
             setCreateDialogVisible,
             setInitialCreateDialogTab,
             handleTabChange: selection.handleTabChange,

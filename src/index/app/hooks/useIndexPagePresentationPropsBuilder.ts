@@ -237,6 +237,7 @@ export function useIndexPagePresentationPropsBuilder({
             standalonePanelOpen: preview.standalonePanelOpen,
             bridgeConnected: state.bridgeConnected,
             activeProjectId: state.activeProjectId,
+            pagePrdManagement: preview.pagePrdManagement,
             prototypeVersionPopoverOpen: state.prototypeVersionPopoverOpen,
             onOpenRemoteRepositorySettings: state.onOpenRemoteRepositorySettings,
             webAgentPanelOpen: conversationUiEnabled ? state.webAgentPanelOpen : false,

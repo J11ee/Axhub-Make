@@ -9,7 +9,8 @@ import {
   preprocessAnnotationSourceMarkdown,
   resolveAnnotationMarkdownPath,
 } from '../../client/vite-plugins/annotationSourceMarkdown.ts';
-import { readJsonBody, sendCorsJson, sendCorsPreflight } from './http.ts';
+import { readJsonBody, sendCorsJson, sendCorsPreflight, sendFile } from './http.ts';
+import { createPrototypePagePrdStore } from './prototypePagePrds.ts';
 
 const ANNOTATION_SOURCE_FILE_NAME = 'annotation-source.json';
 const DEFAULT_ANNOTATION_COLOR = '#1677FF';
@@ -906,10 +907,52 @@ export function handlePrototypeAnnotationApi(
   const isEnableRoute = url.pathname === '/api/prototype-annotation/enable';
   const isNodeRoute = url.pathname === '/api/prototype-annotation/node';
   const isDocumentsRoute = url.pathname === '/api/prototype-annotation/documents';
-  if (!isStatusRoute && !isEnableRoute && !isNodeRoute && !isDocumentsRoute) return false;
+  const isPagePrdRoute = url.pathname === '/api/prototype-annotation/page-prd';
+  const isReaderRoute = url.pathname === '/api/prototype-annotation/reader.js';
+  if (!isStatusRoute && !isEnableRoute && !isNodeRoute && !isDocumentsRoute && !isPagePrdRoute && !isReaderRoute) return false;
 
   if (req.method === 'OPTIONS') {
     sendCorsPreflight(res);
+    return true;
+  }
+
+  if (isReaderRoute && req.method === 'GET') {
+    const asset = path.join(context.project.root, 'node_modules', '@axhub', 'annotation', 'dist', 'browser', 'axhub-annotation.global.js');
+    if (!sendFile(res, asset)) sendCorsJson(res, { error: 'Annotation runtime not installed in this project' }, { status: 404 });
+    return true;
+  }
+
+  if (isPagePrdRoute && (req.method === 'GET' || req.method === 'PUT')) {
+    const resolved = resolvePrototypeAnnotationPath(context.project.root, url.searchParams.get('targetPath'), context.metadata);
+    if (resolved.ok === false) {
+      sendCorsJson(res, { error: resolved.error }, { status: resolved.status });
+      return true;
+    }
+    const pageId = url.searchParams.get('pageId') || '';
+    const getStore = () => createPrototypePagePrdStore(context.project.root, resolved.prototypeDir);
+    const sendError = (error: Error) => sendCorsJson(res, { error: error.message }, { status: 400 });
+    if (req.method === 'GET') {
+      try {
+        const store = getStore();
+        sendCorsJson(res, pageId ? store.read(pageId) : {
+          pages: store.list(),
+          source: readPreprocessedAnnotationSource(resolved),
+        });
+      } catch (error) {
+        sendError(error as Error);
+      }
+    } else {
+      readJsonBody(req).then((body) => {
+        const store = getStore();
+        if (typeof body?.documentPath === 'string') {
+          sendCorsJson(res, { success: true, path: store.bind(pageId, body.documentPath) });
+        } else if (typeof body?.content === 'string') {
+          sendCorsJson(res, { success: true, path: store.save(pageId, body.content) });
+        } else {
+          throw new Error('Missing Markdown content');
+        }
+      }).catch(sendError);
+    }
     return true;
   }
 
@@ -1023,8 +1066,18 @@ export function handlePrototypeAnnotationApi(
           }
           const documentPath = node.type === 'markdown' ? node.markdownPath : node.htmlPath;
           const filePath = resolveDocumentFilePath(context.project.root, resolved.sourceFilePath, documentPath);
+          const projectRelativePath = path.relative(context.project.root, filePath).split(path.sep).join('/');
+          if (createPrototypePagePrdStore(context.project.root, resolved.prototypeDir).isBound(projectRelativePath)) {
+            throw new Error('该文档已关联页面 PRD，不能从文档管理删除');
+          }
           removeDocumentNodeById(source.documents.nodes, nodeId);
-          if (fs.existsSync(filePath)) fs.rmSync(filePath, { force: true });
+          if (fs.existsSync(filePath)) {
+            try {
+              fs.unlinkSync(filePath);
+            } catch {
+              fs.rmSync(filePath, { force: true, recursive: true });
+            }
+          }
           source.data.updatedAt = Date.now();
           writeAnnotationSource(resolved, source);
           sendCorsJson(res, {

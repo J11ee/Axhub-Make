@@ -9,7 +9,7 @@ import React, {
 import type { ComponentProps } from '@ant-design/x-markdown';
 import { XProvider } from '@ant-design/x';
 import zhCN_X from '@ant-design/x/locale/zh_CN';
-import { ConfigProvider, Anchor, Modal, Tabs } from 'antd';
+import { ConfigProvider, Anchor, Button, Modal, Space, Tabs } from 'antd';
 import {
     createCommentary,
     type CommentaryApi,
@@ -17,7 +17,7 @@ import {
     type CommentaryHostToolbarState,
     type CommentaryToolbarMode,
 } from '@axhub/commentary';
-import { SimpleEditor, type UploadFunction } from 'tiptap-editor';
+import type { UploadFunction } from 'tiptap-editor';
 import { defaultThemeConfig } from '../theme';
 import type { AssistantContextV1 } from '@/common/assistant-context/types';
 import { ReadOnlyMarkdown } from '../common/markdown/ReadOnlyMarkdown';
@@ -40,6 +40,23 @@ import {
     resolvePrototypeSpecResourceUrl,
     stripMarkdownPreviewFrontmatter,
 } from './previewMarkdownContent';
+import {
+    buildPrototypePagePrdSaveRequest,
+    getMarkdownDraftStorageKey,
+    readMarkdownDraft,
+} from './markdownDraftIdentity';
+import { PrdMarkdownEditor } from './PrdMarkdownEditor';
+import {
+    createEmbeddedDocumentMessage,
+    isMatchingEmbeddedDocumentCloseRequest,
+    normalizeEmbeddedParentOrigin,
+    readEmbeddedPagePrdRefresh,
+    resolveEmbeddedMarkdownDocumentContext,
+    resolveEmbeddedPagePrdRefresh,
+    type EmbeddedDocumentCloseRequest,
+    type EmbeddedDocumentCloseReason,
+    type EmbeddedMarkdownDocumentContext,
+} from './embeddedMarkdownDocument';
 
 export interface MarkdownDocument {
     key: string;
@@ -52,6 +69,11 @@ interface MarkdownViewerProps {
     content?: string;
     documentUrl?: string;
     documents?: MarkdownDocument[];
+    embeddedDocument?: 'page' | 'ordinary';
+    documentId?: string;
+    pageId?: string;
+    returnPath?: string;
+    parentOrigin?: string;
     onDocumentChange?: (document: MarkdownDocument | null) => void;
 }
 
@@ -115,7 +137,6 @@ export interface MarkdownViewerHandle {
 }
 
 const SPEC_EDIT_QUERY_KEY = 'specEdit';
-const SPEC_DRAFT_STORAGE_PREFIX = 'axhub-spec-draft:';
 const SPEC_DRAFT_DEBOUNCE_MS = 650;
 const PROJECT_DOCUMENT_CONTENT_PATH_RE = /^\/api\/projects\/[^/]+\/docs\/.+\/content$/iu;
 const PROJECT_DOCUMENT_PATH_CONTENT_RE = /^\/api\/projects\/[^/]+\/document-content$/iu;
@@ -323,23 +344,19 @@ const createHeading = (level: number) => {
     return HeadingComponent;
 };
 
-function getSpecDraftStorageKey(doc: MarkdownDocument): string {
-    let identity = doc.key || doc.label || 'default';
-    if (doc.url) {
-        try {
-            const normalizedUrl = new URL(doc.url, window.location.origin);
-            identity = normalizedUrl.pathname || identity;
-        } catch {
-            identity = doc.url || identity;
-        }
-    }
-    return `${SPEC_DRAFT_STORAGE_PREFIX}${encodeURIComponent(identity)}`;
+function getSpecDraftStorageKey(doc: MarkdownDocument): string | null {
+    return getMarkdownDraftStorageKey(
+        doc.url,
+        doc.key || doc.label || 'default',
+        typeof window === 'undefined' ? 'http://localhost' : window.location.origin,
+    );
 }
 
 function readSpecDraft(doc: MarkdownDocument): string | null {
     if (typeof window === 'undefined') return null;
     try {
-        return window.localStorage.getItem(getSpecDraftStorageKey(doc));
+        const key = getSpecDraftStorageKey(doc);
+        return key ? readMarkdownDraft(window.localStorage, key, doc.url, window.location.origin) : null;
     } catch {
         return null;
     }
@@ -348,7 +365,8 @@ function readSpecDraft(doc: MarkdownDocument): string | null {
 function writeSpecDraft(doc: MarkdownDocument, content: string) {
     if (typeof window === 'undefined') return;
     try {
-        window.localStorage.setItem(getSpecDraftStorageKey(doc), content);
+        const key = getSpecDraftStorageKey(doc);
+        if (key) window.localStorage.setItem(key, content);
     } catch {
         // ignore cache write failures
     }
@@ -357,13 +375,15 @@ function writeSpecDraft(doc: MarkdownDocument, content: string) {
 function removeSpecDraft(doc: MarkdownDocument) {
     if (typeof window === 'undefined') return;
     try {
-        window.localStorage.removeItem(getSpecDraftStorageKey(doc));
+        const key = getSpecDraftStorageKey(doc);
+        if (key) window.localStorage.removeItem(key);
     } catch {
         // ignore cache remove failures
     }
 }
 
-function parseQuickEditModeFromUrl(): SpecQuickEditMode {
+function parseQuickEditModeFromUrl(embeddedMode?: 'page' | 'ordinary'): SpecQuickEditMode {
+    if (embeddedMode) return 'edit';
     if (typeof window === 'undefined') return 'none';
     try {
         const params = new URLSearchParams(window.location.search);
@@ -428,10 +448,21 @@ function syncSpecEditQuery(editing: boolean) {
     }
 }
 
-function postToParent(data: Record<string, any>) {
+function postToParent(data: Record<string, any>, context?: EmbeddedMarkdownDocumentContext | null): boolean {
     if (window.parent !== window) {
+        const params = new URLSearchParams(window.location.search);
+        const queryMode = params.get('embeddedDocument');
+        const isEmbedded = Boolean(context) || queryMode === 'page' || queryMode === 'ordinary';
+        if (isEmbedded) {
+            const parentOrigin = context?.parentOrigin ?? normalizeEmbeddedParentOrigin(params.get('parentOrigin'));
+            if (!parentOrigin) return false;
+            window.parent.postMessage(data, parentOrigin);
+            return true;
+        }
         window.parent.postMessage(data, '*');
+        return true;
     }
+    return false;
 }
 
 function toSavedContentMap(docs: MarkdownDocument[]) {
@@ -442,9 +473,27 @@ function toSavedContentMap(docs: MarkdownDocument[]) {
 }
 
 export const MarkdownViewer = React.forwardRef<MarkdownViewerHandle, MarkdownViewerProps>(function MarkdownViewer(
-    { content, documentUrl, documents, onDocumentChange }: MarkdownViewerProps,
+    {
+        content,
+        documentUrl,
+        documents,
+        embeddedDocument,
+        documentId,
+        pageId,
+        returnPath,
+        parentOrigin,
+        onDocumentChange,
+    }: MarkdownViewerProps,
     ref,
 ) {
+    const embeddedContext = useMemo(() => resolveEmbeddedMarkdownDocumentContext({
+        mode: embeddedDocument,
+        documentId,
+        pageId,
+        returnPath,
+        parentOrigin,
+        search: typeof window === 'undefined' ? '' : window.location.search,
+    }), [documentId, embeddedDocument, pageId, parentOrigin, returnPath]);
     const normalizedDocuments = useMemo<MarkdownDocument[]>(() => {
         if (documents && documents.length > 0) {
             return documents;
@@ -462,8 +511,11 @@ export const MarkdownViewer = React.forwardRef<MarkdownViewerHandle, MarkdownVie
     const [localDocuments, setLocalDocuments] = useState<MarkdownDocument[]>(normalizedDocuments);
     const [savedContents, setSavedContents] = useState<Record<string, string>>(() => toSavedContentMap(normalizedDocuments));
     const [activeKey, setActiveKey] = useState<string>(normalizedDocuments[0]?.key || 'default');
-    const [quickEditMode, setQuickEditModeState] = useState<SpecQuickEditMode>(() => parseQuickEditModeFromUrl());
+    const [quickEditMode, setQuickEditModeState] = useState<SpecQuickEditMode>(() => parseQuickEditModeFromUrl(embeddedContext?.mode));
     const [isSaving, setIsSaving] = useState(false);
+    const [externalPagePrdChanged, setExternalPagePrdChanged] = useState(false);
+    const [embeddedFeedback, setEmbeddedFeedback] = useState<{ level: 'success' | 'error' | 'info'; message: string } | null>(null);
+    const [pendingEmbeddedClose, setPendingEmbeddedClose] = useState<EmbeddedDocumentCloseRequest | null>(null);
     const [modal, modalContextHolder] = Modal.useModal();
     const localDocumentsRef = useRef(localDocuments);
     const savedContentsRef = useRef(savedContents);
@@ -505,9 +557,17 @@ export const MarkdownViewer = React.forwardRef<MarkdownViewerHandle, MarkdownVie
         localDocumentsRef.current.forEach((doc) => removeSpecDraft(doc));
     }, []);
 
-    const flushDraftsNow = useCallback(() => {
+    const clearDraftsForCurrentScope = useCallback(() => {
+        if (embeddedContext) {
+            clearDraftForDoc(currentDocRef.current);
+            return;
+        }
+        clearDraftForAllDocs();
+    }, [clearDraftForAllDocs, clearDraftForDoc, embeddedContext]);
+
+    const flushDraftsNow = useCallback((force = false) => {
         clearPendingDraftPersist();
-        if (quickEditModeRef.current !== 'edit') return;
+        if (!force && quickEditModeRef.current !== 'edit') return;
 
         const docs = localDocumentsRef.current;
         const savedMap = savedContentsRef.current;
@@ -515,12 +575,14 @@ export const MarkdownViewer = React.forwardRef<MarkdownViewerHandle, MarkdownVie
             const saved = savedMap[doc.key] || '';
             const current = doc.content || '';
             if (saved === current) {
+                const existingDraft = embeddedContext?.mode === 'page' ? readSpecDraft(doc) : null;
+                if (existingDraft && existingDraft !== current) return;
                 removeSpecDraft(doc);
                 return;
             }
             writeSpecDraft(doc, current);
         });
-    }, [clearPendingDraftPersist]);
+    }, [clearPendingDraftPersist, embeddedContext?.mode]);
 
     const buildCommentResourceContext = useCallback((doc: MarkdownDocument | undefined) => {
         if (!doc) return null;
@@ -658,15 +720,19 @@ export const MarkdownViewer = React.forwardRef<MarkdownViewerHandle, MarkdownVie
     useEffect(() => {
         setLocalDocuments(normalizedDocuments);
         setSavedContents(toSavedContentMap(normalizedDocuments));
+        draftPromptedDocKeysRef.current.clear();
+        draftConfirmingDocKeyRef.current = null;
         setActiveKey((previous) => {
             if (normalizedDocuments.some((doc) => doc.key === previous)) {
                 return previous;
             }
             return normalizedDocuments[0]?.key || 'default';
         });
-        setQuickEditModeState(parseQuickEditModeFromUrl());
+        setQuickEditModeState(parseQuickEditModeFromUrl(embeddedContext?.mode));
         setIsSaving(false);
-    }, [normalizedDocuments]);
+        setPendingEmbeddedClose(null);
+        setExternalPagePrdChanged(false);
+    }, [embeddedContext?.mode, normalizedDocuments]);
 
     useEffect(() => {
         localDocumentsRef.current = localDocuments;
@@ -691,31 +757,43 @@ export const MarkdownViewer = React.forwardRef<MarkdownViewerHandle, MarkdownVie
     }, {}), [localDocuments, savedContents]);
     const hasDirtyChanges = useMemo(() => Object.values(dirtyMap).some(Boolean), [dirtyMap]);
     const dirtyCount = useMemo(() => Object.values(dirtyMap).filter(Boolean).length, [dirtyMap]);
+    const hasSynchronousDirtyChanges = localDocumentsRef.current.some((doc) => (
+        (savedContentsRef.current[doc.key] || '') !== (doc.content || '')
+    ));
 
     const updateCurrentDocContent = useCallback((markdownContent: string) => {
         const activeDocKey = activeKey;
-        setLocalDocuments((previous) => {
-            let changed = false;
-            const next = previous.map((doc) => {
-                if (doc.key !== activeDocKey) return doc;
-                if (shouldIgnoreInitialMarkdownEditorChange({
-                    savedContent: savedContentsRef.current[doc.key] || '',
-                    currentContent: doc.content || '',
-                    nextContent: markdownContent,
-                    userChanged: editorUserChangedDocKeysRef.current.has(doc.key),
-                })) {
-                    return doc;
+        const activeDoc = localDocumentsRef.current.find((doc) => doc.key === activeDocKey);
+        const shouldIgnoreChange = activeDoc ? shouldIgnoreInitialMarkdownEditorChange({
+            savedContent: savedContentsRef.current[activeDoc.key] || '',
+            currentContent: activeDoc.content || '',
+            nextContent: markdownContent,
+            userChanged: editorUserChangedDocKeysRef.current.has(activeDoc.key),
+        }) : true;
+        if (activeDoc && !shouldIgnoreChange) {
+            const nextDocuments = localDocumentsRef.current.map((doc) => (
+                doc.key === activeDocKey ? { ...doc, content: markdownContent } : doc
+            ));
+            localDocumentsRef.current = nextDocuments;
+            if (embeddedContext?.mode === 'page') {
+                if ((savedContentsRef.current[activeDoc.key] || '') === markdownContent) {
+                    removeSpecDraft(activeDoc);
+                } else {
+                    writeSpecDraft({ ...activeDoc, content: markdownContent }, markdownContent);
                 }
-                changed = true;
-                return { ...doc, content: markdownContent };
-            });
-            if (!changed) {
+            }
+        }
+
+        setLocalDocuments((previous) => {
+            if (!activeDoc || shouldIgnoreChange) {
                 return previous;
             }
-            localDocumentsRef.current = next;
+            const next = previous.map((doc) => (
+                doc.key === activeDocKey ? { ...doc, content: markdownContent } : doc
+            ));
             return next;
         });
-    }, [activeKey]);
+    }, [activeKey, embeddedContext?.mode]);
 
     const markCurrentEditorUserChange = useCallback(() => {
         if (activeKey) {
@@ -832,24 +910,22 @@ export const MarkdownViewer = React.forwardRef<MarkdownViewerHandle, MarkdownVie
     }, [currentDoc]);
 
     const restoreDirtyChanges = useCallback(() => {
-        setLocalDocuments((previous) => {
-            const next = previous.map((doc) => (
-                dirtyMap[doc.key]
-                    ? { ...doc, content: savedContents[doc.key] || '' }
-                    : doc
-            ));
-            localDocumentsRef.current = next;
-            return next;
-        });
-    }, [dirtyMap, savedContents]);
+        const next = localDocumentsRef.current.map((doc) => (
+            (savedContentsRef.current[doc.key] || '') !== (doc.content || '')
+                ? { ...doc, content: savedContentsRef.current[doc.key] || '' }
+                : doc
+        ));
+        localDocumentsRef.current = next;
+        setLocalDocuments(next);
+    }, []);
 
     const notifyParent = useCallback((level: 'success' | 'info' | 'warning' | 'error', message: string) => {
         postToParent({
             type: 'SPEC_EDIT_NOTICE',
             level,
             message,
-        });
-    }, []);
+        }, embeddedContext);
+    }, [embeddedContext]);
 
     const buildSaveRequest = useCallback((docUrl: string, nextContent: string) => {
         const prototypeSpecRequest = buildPrototypeSpecMarkdownSaveRequest(
@@ -858,6 +934,12 @@ export const MarkdownViewer = React.forwardRef<MarkdownViewerHandle, MarkdownVie
             window.location.origin,
         );
         if (prototypeSpecRequest) return prototypeSpecRequest;
+        const pagePrdRequest = buildPrototypePagePrdSaveRequest(
+            docUrl,
+            nextContent,
+            window.location.origin,
+        );
+        if (pagePrdRequest) return pagePrdRequest;
 
         let pathname = '';
         let search = '';
@@ -923,6 +1005,36 @@ export const MarkdownViewer = React.forwardRef<MarkdownViewerHandle, MarkdownVie
         };
     }, []);
 
+    const notifyEmbeddedDocumentSaved = useCallback(() => {
+        if (!embeddedContext) return true;
+        const message = createEmbeddedDocumentMessage('AXHUB_EMBEDDED_DOCUMENT_SAVED', embeddedContext);
+        const sent = message ? postToParent(message, embeddedContext) : false;
+        if (!sent) {
+            setEmbeddedFeedback({ level: 'error', message: '保存成功，但无法通知宿主页面' });
+        }
+        return sent;
+    }, [embeddedContext]);
+
+    const notifyEmbeddedDocumentClosed = useCallback(() => {
+        if (!embeddedContext) return true;
+        const message = createEmbeddedDocumentMessage('AXHUB_EMBEDDED_DOCUMENT_CLOSED', embeddedContext);
+        const sent = message ? postToParent(message, embeddedContext) : false;
+        if (!sent) {
+            setEmbeddedFeedback({ level: 'error', message: '无法通知宿主页面关闭文档' });
+        }
+        return sent;
+    }, [embeddedContext]);
+
+    const notifyEmbeddedDocumentCloseCancelled = useCallback(() => {
+        if (!embeddedContext) return true;
+        const message = createEmbeddedDocumentMessage('AXHUB_EMBEDDED_DOCUMENT_CLOSE_CANCELLED', embeddedContext);
+        const sent = message ? postToParent(message, embeddedContext) : false;
+        if (!sent) {
+            setEmbeddedFeedback({ level: 'error', message: '无法通知宿主页面取消退出' });
+        }
+        return sent;
+    }, [embeddedContext]);
+
     const saveCurrentDoc = useCallback(async (options?: {
         exitAfterSave?: boolean;
         suppressNoChangeNotice?: boolean;
@@ -930,36 +1042,63 @@ export const MarkdownViewer = React.forwardRef<MarkdownViewerHandle, MarkdownVie
     }) => {
         if (!currentDoc) {
             notifyParent('warning', '当前没有可保存的文档');
+            if (embeddedContext) setEmbeddedFeedback({ level: 'error', message: '当前没有可保存的文档' });
             return false;
         }
 
-        const isCurrentDirty = dirtyMap[currentDoc.key];
+        const liveCurrentDoc = localDocumentsRef.current.find((doc) => doc.key === currentDoc.key) || currentDoc;
+        const currentContent = liveCurrentDoc.content || '';
+        const isCurrentDirty = (savedContentsRef.current[liveCurrentDoc.key] || '') !== currentContent;
         if (!isCurrentDirty) {
             clearPendingDraftPersist();
-            clearDraftForDoc(currentDoc);
+            clearDraftForDoc(liveCurrentDoc);
             if (options?.exitAfterSave) {
-                clearDraftForAllDocs();
+                clearDraftsForCurrentScope();
                 setQuickEditModeState('none');
+                notifyEmbeddedDocumentClosed();
+            } else if (embeddedContext) {
+                setEmbeddedFeedback({ level: 'info', message: '没有未保存的更改' });
             } else if (!options?.suppressNoChangeNotice) {
                 notifyParent('info', '当前文档没有需要保存的更改');
             }
             return true;
         }
 
-        if (!currentDoc.url) {
+        if (!liveCurrentDoc.url) {
             notifyParent('error', '缺少文档地址，无法保存');
+            if (embeddedContext) setEmbeddedFeedback({ level: 'error', message: '缺少文档地址，无法保存' });
             return false;
         }
 
+        if (externalPagePrdChanged) {
+            const overwrite = await new Promise<boolean>((resolve) => {
+                modal.confirm({
+                    title: '保存草稿并覆盖外部更新？',
+                    content: '页面 PRD 在外部更新过。选择覆盖后，已保存正文将替换为当前草稿。',
+                    okText: '覆盖并保存',
+                    cancelText: '继续编辑',
+                    onOk: () => resolve(true),
+                    onCancel: () => resolve(false),
+                    afterClose: () => resolve(false),
+                });
+            });
+            if (!overwrite) return false;
+        }
+
         setIsSaving(true);
+        if (embeddedContext) setEmbeddedFeedback({ level: 'info', message: '正在保存…' });
         try {
-            const { url, init } = buildSaveRequest(currentDoc.url, currentDoc.content || '');
+            const { url, init } = buildSaveRequest(liveCurrentDoc.url, currentContent);
             const response = await fetch(url, init);
             const result = await response.json().catch(() => ({}));
             if (!response.ok) {
                 throw new Error(result?.error || '保存失败');
             }
-            const savedMarkdownPath = resolveSavedMarkdownFilePath(currentDoc.url);
+            const notifiedParent = notifyEmbeddedDocumentSaved();
+            if (embeddedContext && notifiedParent) {
+                setEmbeddedFeedback({ level: 'success', message: '保存成功' });
+            }
+            const savedMarkdownPath = resolveSavedMarkdownFilePath(liveCurrentDoc.url);
             if (savedMarkdownPath) {
                 broadcastMarkdownFileSaved({
                     type: 'markdown-file-saved',
@@ -968,33 +1107,45 @@ export const MarkdownViewer = React.forwardRef<MarkdownViewerHandle, MarkdownVie
                 });
             }
 
+            const savedContent = currentContent;
+            setExternalPagePrdChanged(false);
+            savedContentsRef.current = {
+                ...savedContentsRef.current,
+                [liveCurrentDoc.key]: savedContent,
+            };
             setSavedContents((previous) => ({
                 ...previous,
-                [currentDoc.key]: currentDoc.content || '',
+                [liveCurrentDoc.key]: savedContent,
             }));
             clearPendingDraftPersist();
-            clearDraftForDoc(currentDoc);
+            clearDraftForDoc(liveCurrentDoc);
             if (!options?.suppressSuccessNotice) {
-                notifyParent('success', `${currentDoc.label} 已保存`);
+                notifyParent('success', `${liveCurrentDoc.label} 已保存`);
             }
             if (options?.exitAfterSave) {
-                clearDraftForAllDocs();
+                clearDraftsForCurrentScope();
                 setQuickEditModeState('none');
+                notifyEmbeddedDocumentClosed();
             }
             return true;
         } catch (error: any) {
             notifyParent('error', error?.message || '保存失败');
+            if (embeddedContext) setEmbeddedFeedback({ level: 'error', message: error?.message || '保存失败' });
             return false;
         } finally {
             setIsSaving(false);
         }
     }, [
         buildSaveRequest,
-        clearDraftForAllDocs,
+        clearDraftsForCurrentScope,
         clearDraftForDoc,
         clearPendingDraftPersist,
         currentDoc,
-        dirtyMap,
+        embeddedContext,
+        externalPagePrdChanged,
+        modal,
+        notifyEmbeddedDocumentClosed,
+        notifyEmbeddedDocumentSaved,
         notifyParent,
     ]);
 
@@ -1015,19 +1166,98 @@ export const MarkdownViewer = React.forwardRef<MarkdownViewerHandle, MarkdownVie
             } else if (saveBehavior === 'discard') {
                 restoreDirtyChanges();
                 clearPendingDraftPersist();
-                clearDraftForAllDocs();
+                clearDraftsForCurrentScope();
             }
         }
 
         setQuickEditModeState(mode);
         return true;
-    }, [clearDraftForAllDocs, clearPendingDraftPersist, restoreDirtyChanges, saveCurrentDoc]);
+    }, [clearDraftsForCurrentScope, clearPendingDraftPersist, restoreDirtyChanges, saveCurrentDoc]);
+
+    const requestEmbeddedDocumentClose = useCallback((reason: EmbeddedDocumentCloseReason = 'close') => {
+        if (!embeddedContext) return false;
+        if (!embeddedContext.documentId || !embeddedContext.returnPath || !embeddedContext.parentOrigin) {
+            setEmbeddedFeedback({ level: 'error', message: '内嵌文档缺少宿主身份信息，无法安全退出' });
+            return false;
+        }
+
+        const request: EmbeddedDocumentCloseRequest = {
+            type: 'AXHUB_EMBEDDED_DOCUMENT_REQUEST_CLOSE',
+            reason,
+            documentId: embeddedContext.documentId,
+            ...(embeddedContext.pageId ? { pageId: embeddedContext.pageId } : {}),
+            returnPath: embeddedContext.returnPath,
+        };
+
+        if (embeddedContext.mode === 'page') {
+            flushDraftsNow(true);
+            clearPendingDraftPersist();
+            setPendingEmbeddedClose(null);
+            setQuickEditModeState('none');
+            setEmbeddedFeedback({ level: 'info', message: '页面草稿已保留，正在退出…' });
+            notifyEmbeddedDocumentClosed();
+            return true;
+        }
+
+        if (isSaving) {
+            setPendingEmbeddedClose(request);
+            setEmbeddedFeedback({ level: 'info', message: '正在保存，请稍候再退出' });
+            return false;
+        }
+
+        if (hasSynchronousDirtyChanges) {
+            setPendingEmbeddedClose(request);
+            setEmbeddedFeedback({ level: 'info', message: '有未保存的更改，请选择保存或放弃' });
+            return false;
+        }
+
+        setPendingEmbeddedClose(null);
+        setQuickEditModeState('none');
+        notifyEmbeddedDocumentClosed();
+        return true;
+    }, [clearPendingDraftPersist, embeddedContext, flushDraftsNow, hasSynchronousDirtyChanges, isSaving, notifyEmbeddedDocumentClosed]);
+
+    const discardEmbeddedDocumentChangesAndClose = useCallback(() => {
+        if (!embeddedContext) return;
+        restoreDirtyChanges();
+        clearPendingDraftPersist();
+        clearDraftForDoc(currentDocRef.current);
+        setPendingEmbeddedClose(null);
+        setQuickEditModeState('none');
+        setEmbeddedFeedback({ level: 'info', message: '已放弃更改，正在退出…' });
+        notifyEmbeddedDocumentClosed();
+    }, [clearDraftForDoc, clearPendingDraftPersist, embeddedContext, notifyEmbeddedDocumentClosed, restoreDirtyChanges]);
+
+    const cancelEmbeddedDocumentClose = useCallback(() => {
+        if (!pendingEmbeddedClose) return;
+        setPendingEmbeddedClose(null);
+        setEmbeddedFeedback({ level: 'info', message: '已取消退出，可继续编辑' });
+        notifyEmbeddedDocumentCloseCancelled();
+    }, [notifyEmbeddedDocumentCloseCancelled, pendingEmbeddedClose]);
+
+    const saveEmbeddedDocumentChangesAndClose = useCallback(async () => {
+        if (!pendingEmbeddedClose) return;
+        const saved = await saveCurrentDoc({
+            exitAfterSave: true,
+            suppressNoChangeNotice: true,
+            suppressSuccessNotice: true,
+        });
+        if (saved) setPendingEmbeddedClose(null);
+    }, [pendingEmbeddedClose, saveCurrentDoc]);
+
+    useEffect(() => {
+        if (!pendingEmbeddedClose || isSaving || hasSynchronousDirtyChanges) return;
+        setPendingEmbeddedClose(null);
+        setQuickEditModeState('none');
+        setEmbeddedFeedback({ level: 'info', message: '保存完成，正在退出…' });
+        notifyEmbeddedDocumentClosed();
+    }, [hasSynchronousDirtyChanges, isSaving, notifyEmbeddedDocumentClosed, pendingEmbeddedClose]);
 
     useEffect(() => {
         if (isEditing && currentDoc) {
             editorUserChangedDocKeysRef.current.delete(currentDoc.key);
         }
-    }, [currentDoc?.key, isEditing]);
+    }, [currentDoc?.key, currentDoc?.url, isEditing]);
 
     const emitSpecEditStatus = useCallback(() => {
         postToParent({
@@ -1038,8 +1268,8 @@ export const MarkdownViewer = React.forwardRef<MarkdownViewerHandle, MarkdownVie
             dirtyCount,
             activeDocKey: activeKey,
             quickEditMode,
-        });
-    }, [activeKey, dirtyCount, hasDirtyChanges, isQuickEditing, isSaving, quickEditMode]);
+        }, embeddedContext);
+    }, [activeKey, dirtyCount, embeddedContext, hasDirtyChanges, isQuickEditing, isSaving, quickEditMode]);
 
     useEffect(() => {
         emitSpecEditStatus();
@@ -1077,6 +1307,12 @@ export const MarkdownViewer = React.forwardRef<MarkdownViewerHandle, MarkdownVie
         };
     }, [flushDraftsNow, stopCommentEditor]);
 
+    useEffect(() => () => {
+        if (embeddedContext?.mode === 'page') {
+            flushDraftsNow(true);
+        }
+    }, [embeddedContext?.mode, flushDraftsNow]);
+
     useEffect(() => {
         if (!isEditing || !currentDoc) {
             clearPendingDraftPersist();
@@ -1099,6 +1335,12 @@ export const MarkdownViewer = React.forwardRef<MarkdownViewerHandle, MarkdownVie
             return;
         }
 
+        if (embeddedContext?.mode === 'page') {
+            writeSpecDraft(currentDoc, current);
+            clearPendingDraftPersist();
+            return;
+        }
+
         clearPendingDraftPersist();
         draftPersistTimerRef.current = window.setTimeout(() => {
             writeSpecDraft(currentDoc, current);
@@ -1108,7 +1350,7 @@ export const MarkdownViewer = React.forwardRef<MarkdownViewerHandle, MarkdownVie
         return () => {
             clearPendingDraftPersist();
         };
-    }, [clearDraftForDoc, clearPendingDraftPersist, currentDoc, isEditing, savedContents]);
+    }, [clearDraftForDoc, clearPendingDraftPersist, currentDoc, embeddedContext?.mode, isEditing, savedContents]);
 
     useEffect(() => {
         if (!isEditing || !currentDoc) {
@@ -1117,20 +1359,31 @@ export const MarkdownViewer = React.forwardRef<MarkdownViewerHandle, MarkdownVie
             return;
         }
 
-        if (draftPromptedDocKeysRef.current.has(currentDoc.key)) {
+        const draftIdentity = getSpecDraftStorageKey(currentDoc) || currentDoc.key;
+        if (draftPromptedDocKeysRef.current.has(draftIdentity)) {
             return;
         }
-        draftPromptedDocKeysRef.current.add(currentDoc.key);
+        draftPromptedDocKeysRef.current.add(draftIdentity);
 
-        const draft = readSpecDraft(currentDoc);
-        if (!draft || draft === currentDoc.content || draft === (savedContents[currentDoc.key] || '')) {
+        let draftDoc = currentDoc;
+        let draft = readSpecDraft(draftDoc);
+        if (draft === null && embeddedContext?.mode === 'page') {
+            const unboundUrl = new URLSearchParams(window.location.search).get('pagePrdUrl');
+            if (unboundUrl) {
+                draftDoc = { ...currentDoc, url: unboundUrl };
+                draft = readSpecDraft(draftDoc);
+            }
+        }
+        if (draft === null || (draft === '' && embeddedContext?.mode !== 'page')
+            || draft === currentDoc.content || draft === (savedContents[currentDoc.key] || '')) {
             return;
         }
 
-        if (draftConfirmingDocKeyRef.current === currentDoc.key) {
+        if (draftConfirmingDocKeyRef.current === draftIdentity) {
             return;
         }
-        draftConfirmingDocKeyRef.current = currentDoc.key;
+        draftConfirmingDocKeyRef.current = draftIdentity;
+        const recoveredDraft = draft;
 
         modal.confirm({
             title: '检测到本地缓存',
@@ -1138,9 +1391,15 @@ export const MarkdownViewer = React.forwardRef<MarkdownViewerHandle, MarkdownVie
             okText: '加载缓存',
             cancelText: '忽略',
             onOk: () => {
+                if (draftDoc !== currentDoc) {
+                    writeSpecDraft(currentDoc, recoveredDraft);
+                    clearDraftForDoc(draftDoc);
+                    setExternalPagePrdChanged(true);
+                    setEmbeddedFeedback({ level: 'info', message: '本页已有外部保存的正文，已恢复之前的草稿。' });
+                }
                 setLocalDocuments((previous) => {
                     const next = previous.map((doc) => (
-                        doc.key === currentDoc.key ? { ...doc, content: draft } : doc
+                        doc.key === currentDoc.key ? { ...doc, content: recoveredDraft } : doc
                     ));
                     localDocumentsRef.current = next;
                     return next;
@@ -1148,27 +1407,74 @@ export const MarkdownViewer = React.forwardRef<MarkdownViewerHandle, MarkdownVie
                 notifyParent('info', `已加载 ${currentDoc.label} 的本地缓存版本`);
             },
             onCancel: () => {
-                clearDraftForDoc(currentDoc);
+                clearDraftForDoc(draftDoc);
             },
             afterClose: () => {
-                if (draftConfirmingDocKeyRef.current === currentDoc.key) {
+                if (draftConfirmingDocKeyRef.current === draftIdentity) {
                     draftConfirmingDocKeyRef.current = null;
                 }
             },
         });
-    }, [clearDraftForDoc, currentDoc, isEditing, modal, notifyParent, savedContents]);
+    }, [clearDraftForDoc, currentDoc, embeddedContext?.mode, isEditing, modal, notifyParent, savedContents]);
 
     useEffect(() => {
         postToParent({
             type: 'spec-doc-changed',
             activeDocKey: activeKey,
+        }, embeddedContext);
+    }, [activeKey, embeddedContext]);
+
+    const syncExternalPagePrdContent = useCallback((incoming: string) => {
+        if (isSaving) return;
+        const doc = localDocumentsRef.current.find((item) => item.key === activeKey);
+        if (!doc) return;
+        const update = resolveEmbeddedPagePrdRefresh(savedContentsRef.current[doc.key] || '', doc.content || '', incoming);
+        if (!update) return;
+        savedContentsRef.current = { ...savedContentsRef.current, [doc.key]: incoming };
+        setSavedContents(savedContentsRef.current);
+        if (update.content !== doc.content) {
+            editorUserChangedDocKeysRef.current.delete(doc.key);
+            localDocumentsRef.current = localDocumentsRef.current.map((item) => (
+                item.key === doc.key ? { ...item, content: update.content } : item
+            ));
+            setLocalDocuments(localDocumentsRef.current);
+        }
+        setExternalPagePrdChanged(update.conflict);
+        setEmbeddedFeedback({
+            level: 'info',
+            message: update.conflict
+                ? '外部正文已更新，当前未保存的草稿已保留。'
+                : '已读取外部更新的正文。',
         });
-    }, [activeKey]);
+    }, [activeKey, isSaving]);
 
     useEffect(() => {
         const handleMessage = (event: MessageEvent) => {
             const data = event.data;
             if (!data || typeof data.type !== 'string') return;
+
+            if (embeddedContext) {
+                if (event.source !== window.parent || !embeddedContext.parentOrigin || event.origin !== embeddedContext.parentOrigin) {
+                    return;
+                }
+                const refreshedContent = readEmbeddedPagePrdRefresh(data, embeddedContext);
+                if (refreshedContent !== undefined) {
+                    syncExternalPagePrdContent(refreshedContent);
+                    return;
+                }
+                if (data.type === 'AXHUB_EMBEDDED_DOCUMENT_REQUEST_CLOSE') {
+                    if (isMatchingEmbeddedDocumentCloseRequest({
+                        data,
+                        source: event.source,
+                        parentWindow: window.parent,
+                        origin: event.origin,
+                        context: embeddedContext,
+                    })) {
+                        requestEmbeddedDocumentClose(data.reason);
+                    }
+                    return;
+                }
+            }
 
             if (data.type === 'SPEC_EDIT_ENABLE') {
                 draftPromptedDocKeysRef.current.clear();
@@ -1193,6 +1499,10 @@ export const MarkdownViewer = React.forwardRef<MarkdownViewerHandle, MarkdownVie
             }
 
             if (data.type === 'SPEC_EDIT_EXIT') {
+                if (embeddedContext) {
+                    requestEmbeddedDocumentClose('close');
+                    return;
+                }
                 if (Boolean(data.discardChanges)) {
                     restoreDirtyChanges();
                 }
@@ -1246,8 +1556,10 @@ export const MarkdownViewer = React.forwardRef<MarkdownViewerHandle, MarkdownVie
         clearPendingDraftPersist,
         emitSpecEditStatus,
         restoreDirtyChanges,
+        requestEmbeddedDocumentClose,
         saveCurrentDoc,
         setQuickEditSessionMode,
+        syncExternalPagePrdContent,
     ]);
 
     useImperativeHandle(ref, () => ({
@@ -1268,6 +1580,18 @@ export const MarkdownViewer = React.forwardRef<MarkdownViewerHandle, MarkdownVie
             commentEditorRef.current?.refresh?.();
         },
         disableQuickEdit(options) {
+            if (embeddedContext) {
+                if (options?.discardChanges && embeddedContext.mode === 'ordinary') {
+                    restoreDirtyChanges();
+                    clearPendingDraftPersist();
+                    clearDraftForDoc(currentDocRef.current);
+                    setQuickEditModeState('none');
+                    notifyEmbeddedDocumentClosed();
+                    return;
+                }
+                requestEmbeddedDocumentClose('close');
+                return;
+            }
             if (options?.discardChanges) {
                 restoreDirtyChanges();
             }
@@ -1349,6 +1673,11 @@ export const MarkdownViewer = React.forwardRef<MarkdownViewerHandle, MarkdownVie
         isQuickEditing,
         isSaving,
         quickEditMode,
+        embeddedContext,
+        clearDraftForDoc,
+        clearPendingDraftPersist,
+        requestEmbeddedDocumentClose,
+        notifyEmbeddedDocumentClosed,
         restoreDirtyChanges,
         saveCurrentDoc,
         setQuickEditSessionMode,
@@ -1491,10 +1820,10 @@ export const MarkdownViewer = React.forwardRef<MarkdownViewerHandle, MarkdownVie
         >
             <div className="markdown-content">
                 <div>
-                    <SimpleEditor
+                    <PrdMarkdownEditor
                         content={currentDoc?.content || ''}
                         contentType="markdown"
-                        editable={isEditing}
+                        editable={isEditing && !(embeddedContext && isSaving)}
                         showThemeToggle={false}
                         toolbarPreset="full"
                         imageUpload={uploadImageToCurrentDoc}
@@ -1511,6 +1840,95 @@ export const MarkdownViewer = React.forwardRef<MarkdownViewerHandle, MarkdownVie
             <XProvider locale={zhCN_X}>
                 {modalContextHolder}
                 <style>{markdownStyles}</style>
+                {embeddedContext && (
+                    <div
+                        className="embedded-document-actions"
+                        style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'space-between',
+                            gap: 16,
+                            padding: '10px 16px',
+                            borderBottom: '1px solid #e5e7eb',
+                            background: '#fff',
+                        }}
+                    >
+                        <div style={{ minWidth: 0 }}>
+                            <strong>{embeddedContext.mode === 'page' ? '页面 PRD' : (currentDoc?.label || '文档')}</strong>
+                            {embeddedFeedback && (
+                                <div
+                                    role={embeddedFeedback.level === 'error' ? 'alert' : 'status'}
+                                    aria-live="polite"
+                                    style={{
+                                        marginTop: 3,
+                                        color: embeddedFeedback.level === 'error'
+                                            ? '#cf1322'
+                                            : embeddedFeedback.level === 'success'
+                                                ? '#237804'
+                                                : '#595959',
+                                        fontSize: 12,
+                                    }}
+                                >
+                                    {embeddedFeedback.message}
+                                </div>
+                            )}
+                        </div>
+                        <Space>
+                            <Button
+                                type="primary"
+                                loading={isSaving}
+                                disabled={!isEditing || !embeddedContext.documentId}
+                                onClick={() => void saveCurrentDoc({ exitAfterSave: embeddedContext.mode === 'page' })}
+                            >
+                                保存
+                            </Button>
+                            {embeddedContext.mode === 'page' && hasDirtyChanges ? (
+                                <Button
+                                    danger
+                                    disabled={isSaving}
+                                    onClick={() => modal.confirm({
+                                        title: '放弃当前页未保存的更改？',
+                                        okText: '放弃',
+                                        cancelText: '继续编辑',
+                                        onOk: discardEmbeddedDocumentChangesAndClose,
+                                    })}
+                                >
+                                    放弃更改
+                                </Button>
+                            ) : null}
+                            <Button
+                                disabled={isSaving}
+                                onClick={() => requestEmbeddedDocumentClose('close')}
+                            >
+                                退出
+                            </Button>
+                        </Space>
+                    </div>
+                )}
+                <Modal
+                    open={Boolean(pendingEmbeddedClose)}
+                    title="文档有未保存更改"
+                    onCancel={cancelEmbeddedDocumentClose}
+                    maskClosable={false}
+                    footer={[
+                        <Button key="continue" onClick={cancelEmbeddedDocumentClose}>
+                            继续编辑
+                        </Button>,
+                        <Button key="discard" danger onClick={discardEmbeddedDocumentChangesAndClose}>
+                            放弃并退出
+                        </Button>,
+                        <Button
+                            key="save"
+                            type="primary"
+                            loading={isSaving}
+                            onClick={() => void saveEmbeddedDocumentChangesAndClose()}
+                        >
+                            保存并退出
+                        </Button>,
+                    ]}
+                >
+                    <p>当前文档有未保存的更改。可以保存后退出、放弃更改，或继续编辑。</p>
+                </Modal>
                 {isMultiDoc && (
                     <div className="markdown-tabs-container">
                         <Tabs

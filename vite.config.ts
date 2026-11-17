@@ -8,11 +8,12 @@ import { defineConfig, type Plugin } from 'vite';
 import { stampAdminAssetUrlsForContent } from './src/chunking/adminAssetStamping';
 import { excalidrawDevCjsInteropPlugin } from './src/chunking/excalidrawDevCjsInterop';
 import { getManualChunkName } from './src/chunking/manualChunks';
+import { makeRichMarkdownEditorVitePlugin } from './src/spec-template/makeRichMarkdownEditorVitePlugin';
 import { canvasHotUpdateFilterPlugin } from './src/server/canvasHotUpdateFilter';
 import { DEFAULT_MAKE_SERVER_PORT } from './src/server/defaults';
 import { releaseListeningProcessesOnPort } from './src/server/portOccupancy';
 
-const adminOutDir = path.resolve(__dirname, 'dist/admin');
+let adminOutDir = path.resolve(__dirname, 'dist/admin');
 const FRESH_VENDOR_ALIAS_PACKAGES = new Set(['@axhub/commentary']);
 const REACT_SINGLETON_PACKAGES = ['react', 'react-dom'] as const;
 const ASSISTANT_UI_SINGLETON_PACKAGES = [
@@ -284,8 +285,15 @@ export default defineConfig({
     },
   },
   plugins: [
+    {
+      name: 'resolve-admin-output-dir',
+      configResolved(config) {
+        adminOutDir = path.resolve(config.root, config.build.outDir);
+      },
+    },
     portReleaseBeforeListenPlugin(),
     adminRootDevEntryRedirectPlugin(),
+    makeRichMarkdownEditorVitePlugin(),
     excalidrawDevCjsInteropPlugin(),
     excalidrawSiblingsPlugin(),
     canvasHotUpdateFilterPlugin(),
