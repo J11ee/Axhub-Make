@@ -10,10 +10,10 @@ import {
 } from '@/components/ui/dialog';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { cn } from '@/lib/utils';
-import { Bot, Check, ChevronDown, ChevronRight, FileCode2, FileText, Folder, Pencil, Plus, TextCursorInput, Trash2, X } from 'lucide-react';
+import { Bot, Check, ChevronDown, ChevronRight, File, FileCode2, Folder, FolderOpen, ListOrdered, Pencil, Plus, TextCursorInput, Trash2, X } from 'lucide-react';
 import type { AnnotationDocumentDirectoryNode } from '../../types';
-import PagePrdManagement, { collectManagedMarkdown, type PagePrdManagementProps } from './PagePrdManagement';
-import { getActivePagePrdPaths } from '../../../common/pagePrd';
+import PagePrdManagement, { type PagePrdManagementProps } from './PagePrdManagement';
+import { numberedPrdTitle } from '../../../common/pagePrd';
 export type { AnnotationDocumentDirectoryNode } from '../../types';
 
 export interface DocumentManagementDialogProps {
@@ -150,7 +150,8 @@ export function DocumentRow({
     onDelete,
     onDragStart,
     onDrop,
-    hiddenIds,
+    displayTitle,
+    onPlace,
 }: {
     node: AnnotationDocumentDirectoryNode;
     depth: number;
@@ -159,15 +160,15 @@ export function DocumentRow({
     onEdit: (node: AnnotationDocumentDirectoryNode) => void;
     onRename: (node: AnnotationDocumentDirectoryNode, title: string) => void | Promise<void>;
     onDelete: (node: AnnotationDocumentDirectoryNode) => void;
-    onDragStart: (node: AnnotationDocumentDirectoryNode) => void;
-    onDrop: (target: AnnotationDocumentDirectoryNode) => void;
-    hiddenIds?: Set<string>;
+    onDragStart?: (node: AnnotationDocumentDirectoryNode) => void;
+    onDrop?: (target: AnnotationDocumentDirectoryNode) => void;
+    displayTitle?: string;
+    onPlace?: () => void;
 }) {
     const isFolder = node.type === 'folder';
     const isExpanded = expanded.has(node.id);
     const [renaming, setRenaming] = useState(false);
     const [renameValue, setRenameValue] = useState(node.title);
-    if (hiddenIds?.has(node.id)) return null;
 
     const cancelRename = () => {
         setRenameValue(node.title);
@@ -186,12 +187,12 @@ export function DocumentRow({
             <div
                 className="group flex min-h-9 items-center gap-2 rounded-md px-2 py-1 hover:bg-muted/70"
                 style={{ paddingLeft: `${8 + depth * 18}px` }}
-                draggable={!isFolder && !renaming}
-                onDragStart={() => onDragStart(node)}
+                draggable={!!onDragStart && !isFolder && !renaming}
+                onDragStart={() => onDragStart?.(node)}
                 onDragOver={(event) => event.preventDefault()}
                 onDrop={(event) => {
                     event.preventDefault();
-                    onDrop(node);
+                    onDrop?.(node);
                 }}
             >
                 {isFolder ? (
@@ -209,7 +210,17 @@ export function DocumentRow({
                         <TooltipContent side="top">{isExpanded ? '折叠文件夹' : '展开文件夹'}</TooltipContent>
                     </Tooltip>
                 ) : <span className="w-5" />}
-                {isFolder ? <Folder className="h-4 w-4 text-muted-foreground" /> : node.type === 'html' ? <FileCode2 className="h-4 w-4 text-muted-foreground" /> : <FileText className="h-4 w-4 text-muted-foreground" />}
+                {isFolder ? (
+                    isExpanded ? (
+                        <FolderOpen className="h-4 w-4 shrink-0 fill-blue-500/25 text-blue-600 dark:fill-blue-500/30 dark:text-blue-400" />
+                    ) : (
+                        <Folder className="h-4 w-4 shrink-0 fill-blue-500/20 text-blue-600 dark:fill-blue-500/30 dark:text-blue-400" />
+                    )
+                ) : node.type === 'html' ? (
+                    <FileCode2 className="h-4 w-4 shrink-0 text-muted-foreground" />
+                ) : (
+                    <File className="h-4 w-4 shrink-0 text-muted-foreground" />
+                )}
                 {renaming ? (
                     <div className="flex min-w-0 flex-1 items-center gap-1">
                         <Input
@@ -254,7 +265,7 @@ export function DocumentRow({
                         </Tooltip>
                     </div>
                 ) : (
-                    <span className="min-w-0 flex-1 truncate text-sm" title={node.markdownPath || node.htmlPath}>{node.title}</span>
+                    <span className="min-w-0 flex-1 truncate text-sm" title={node.markdownPath || node.htmlPath}>{displayTitle ?? node.title}</span>
                 )}
                 {!isFolder && !renaming ? (
                     <span className="flex shrink-0 items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
@@ -283,6 +294,16 @@ export function DocumentRow({
                             </TooltipTrigger>
                             <TooltipContent side="top">重命名目录标题</TooltipContent>
                         </Tooltip>
+                        {onPlace ? (
+                            <Tooltip>
+                                <TooltipTrigger asChild>
+                                    <Button type="button" variant="ghost" size="icon-xs" aria-label={`调整位置 ${node.title}`} onClick={onPlace}>
+                                        <ListOrdered className="h-3.5 w-3.5" />
+                                    </Button>
+                                </TooltipTrigger>
+                                <TooltipContent side="top">调整位置</TooltipContent>
+                            </Tooltip>
+                        ) : null}
                         <Tooltip>
                             <TooltipTrigger asChild>
                                 <Button type="button" variant="ghost" size="icon-xs" aria-label={`删除 ${node.title}`} onClick={() => onDelete(node)}>
@@ -308,7 +329,6 @@ export function DocumentRow({
                             onDelete={onDelete}
                             onDragStart={onDragStart}
                             onDrop={onDrop}
-                            hiddenIds={hiddenIds}
                         />
                     ))}
                 </div>
@@ -334,11 +354,10 @@ export default function DocumentManagementDialog({
     const [expanded, setExpanded] = useState<Set<string>>(() => new Set());
     const [draggingNodeId, setDraggingNodeId] = useState<string | null>(null);
     const visibleTree = useMemo(() => resolveVisibleDocumentTree(tree || []), [tree]);
-    const markdownDocuments = pagePrds ? collectManagedMarkdown(tree, pagePrds.scope) : [];
-    const boundPaths = pagePrds ? getActivePagePrdPaths(pagePrds.pages, pagePrds.records) : new Set<string>();
-    const hiddenIds = new Set(markdownDocuments.filter((doc) => boundPaths.has(doc.path)).map((doc) => doc.id));
+    const [creatingPrdDocument, setCreatingPrdDocument] = useState(false);
 
     useEffect(() => {
+        if (!open) setCreatingPrdDocument(false);
         if (open) {
             setExpanded((previous) => new Set([...previous, ...collectFolderIds(visibleTree)]));
         }
@@ -399,14 +418,17 @@ export default function DocumentManagementDialog({
                 >
                 <DialogHeader>
                     <DialogTitle>文档管理</DialogTitle>
-                    <DialogDescription>维护需求标注中的文档目录，可拖动文档调整位置。</DialogDescription>
+                    <DialogDescription>{pagePrds ? '维护产品总述、原型说明和独立文档。' : '维护需求标注中的文档目录，可拖动文档调整位置。'}</DialogDescription>
                 </DialogHeader>
                 <div className="flex items-center justify-end gap-2">
                     <Button
                         type="button"
                         size="sm"
                         disabled={loading}
-                        onClick={() => { void onCreateDocument(resolveDefaultCreateFolderId(tree || [])); }}
+                        onClick={() => {
+                            if (pagePrds?.onCreateAt) setCreatingPrdDocument(true);
+                            else void onCreateDocument(resolveDefaultCreateFolderId(tree || []));
+                        }}
                     >
                         <Plus className="h-4 w-4" /> 新建
                     </Button>
@@ -421,10 +443,37 @@ export default function DocumentManagementDialog({
                     </Button>
                 </div>
                 <div className="max-h-[56vh] space-y-3 overflow-y-auto">
-                {pagePrds && !loading ? <PagePrdManagement {...pagePrds} documents={markdownDocuments.filter((doc) => !hiddenIds.has(doc.id))} onOpen={(id, edit) => {
-                    onOpenChange(false);
-                    pagePrds.onOpen(id, edit);
-                }} /> : null}
+                {pagePrds ? (
+                    <>
+                        {loading ? <div role="status" className="text-sm text-muted-foreground">正在读取标注文档...</div> : null}
+                        <PagePrdManagement
+                            {...pagePrds}
+                            tree={tree}
+                            creating={creatingPrdDocument}
+                            onCancelCreate={() => setCreatingPrdDocument(false)}
+                            onOpen={(id, edit) => {
+                                onOpenChange(false);
+                                pagePrds.onOpen(id, edit);
+                            }}
+                            renderDocument={(item, depth, onPlace) => item.document ? (
+                                <DocumentRow
+                                    node={item.document}
+                                    displayTitle={numberedPrdTitle(item)}
+                                    depth={depth}
+                                    expanded={expanded}
+                                    onToggle={() => undefined}
+                                    onEdit={(documentNode) => {
+                                        onOpenChange(false);
+                                        void onEditDocument(documentNode);
+                                    }}
+                                    onRename={handleRename}
+                                    onDelete={(documentNode) => { void onDeleteDocument(documentNode); }}
+                                    onPlace={onPlace}
+                                />
+                            ) : null}
+                        />
+                    </>
+                ) : (
                 <div
                     className={cn('min-h-[180px] rounded-md border p-2', draggingNodeId && 'border-primary/50 bg-primary/5')}
                     onDragOver={(event) => event.preventDefault()}
@@ -451,12 +500,12 @@ export default function DocumentManagementDialog({
                             onDelete={(documentNode) => { void onDeleteDocument(documentNode); }}
                             onDragStart={(dragged) => setDraggingNodeId(dragged.id)}
                             onDrop={(target) => { void handleDrop(target); }}
-                            hiddenIds={hiddenIds}
                         />
                     )) : (
                         <div className="flex h-40 items-center justify-center text-sm text-muted-foreground">暂无标注文档</div>
                     )}
                 </div>
+                )}
                 </div>
                 </DialogContent>
             </Dialog>

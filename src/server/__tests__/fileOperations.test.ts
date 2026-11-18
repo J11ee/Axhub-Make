@@ -161,9 +161,9 @@ function createMetadata(): ProjectMetadata {
   };
 }
 
-afterEach(() => {
+afterEach(async () => {
   for (const root of tempRoots.splice(0)) {
-    fs.rmSync(root, { recursive: true, force: true });
+    await fs.promises.rm(root, { recursive: true, force: true });
   }
 });
 
@@ -284,8 +284,8 @@ describe('legacy file operations API', () => {
     expect(fs.readFileSync(path.join(projectRoot, 'src/prototypes/home-copy/index.tsx'), 'utf8')).toBe('export default null;\n');
   });
 
-  it('removes deleted prototype resources from metadata and navigation', async () => {
-    const projectRoot = createTempRoot();
+  it('deletes the prototype under a Chinese project path and removes it from metadata and navigation', async () => {
+    const projectRoot = createTempRoot('axhub-file-ops-中文-');
     const deletedDir = path.join(projectRoot, 'src/prototypes/home');
     writeFile(path.join(deletedDir, 'index.tsx'), 'export default null;\n');
     let metadata = createMetadata();

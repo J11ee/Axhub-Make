@@ -70,6 +70,7 @@ function TableToolbar({ editor }: { editor: MarkdownTableEditorEvents }) {
                         onMouseDown={(event) => event.preventDefault()}
                     >
                         <Table2 className="tiptap-button-icon" aria-hidden="true" />
+                        <span className="tiptap-button-text">表格</span>
                     </button>
                 </DropdownMenu.Trigger>
                 <DropdownMenu.Portal>
@@ -146,6 +147,7 @@ function TextColorToolbar({ editor }: { editor: MarkdownTextColorEditor }) {
                         onMouseDown={(event) => event.preventDefault()}
                     >
                         <Palette className="tiptap-button-icon" aria-hidden="true" />
+                        <span className="tiptap-button-text">文字颜色</span>
                     </button>
                 </DropdownMenu.Trigger>
                 <DropdownMenu.Portal>

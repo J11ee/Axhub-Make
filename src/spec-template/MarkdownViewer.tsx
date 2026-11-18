@@ -267,6 +267,8 @@ const markdownStyles = `
     top: 0;
     bottom: auto !important;
     position: sticky;
+    flex-wrap: wrap;
+    height: auto;
     border-radius: 8px;
     z-index: 24;
     margin-bottom: 12px;

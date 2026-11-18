@@ -2954,7 +2954,11 @@ export default function ContentPanel({
                                         ? <ChevronDown className="h-3.5 w-3.5 shrink-0" />
                                         : <ChevronRight className="h-3.5 w-3.5 shrink-0" />}
                                 </button>
-                                <Folder className="h-3.5 w-3.5 shrink-0 text-muted-foreground/80 pointer-events-none" />
+                                {expanded ? (
+                                    <FolderOpen className="h-3.5 w-3.5 shrink-0 fill-blue-500/25 text-blue-600 dark:fill-blue-500/30 dark:text-blue-400 pointer-events-none" />
+                                ) : (
+                                    <Folder className="h-3.5 w-3.5 shrink-0 fill-blue-500/20 text-blue-600 dark:fill-blue-500/30 dark:text-blue-400 pointer-events-none" />
+                                )}
                             </div>
                         )}
                         actions={null}
@@ -3453,17 +3457,6 @@ export default function ContentPanel({
                             </TooltipContent>
                         </Tooltip>
                     </TooltipProvider>
-
-                    {onOpenCurrentPagePrd && (
-                        <Button
-                            variant="ghost"
-                            size="sm"
-                            className="h-7 shrink-0 px-2"
-                            onClick={onOpenCurrentPagePrd}
-                        >
-                            需求 PRD
-                        </Button>
-                    )}
 
                     {externalOpenMenu ? (
                         <div className="flex items-center gap-1">

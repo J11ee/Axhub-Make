@@ -55,6 +55,7 @@ export interface AnnotationDocumentDirectoryNode {
     htmlPath?: string;
     markdown?: string;
     defaultExpanded?: boolean;
+    prdPlacement?: import('../common/pagePrdPlacement').PagePrdPlacement;
     children?: AnnotationDocumentDirectoryNode[];
     [key: string]: unknown;
 }

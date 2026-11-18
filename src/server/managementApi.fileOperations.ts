@@ -198,7 +198,7 @@ export function handleFileOperationsApi(
     return true;
   }
 
-  readJsonBody(req).then((body) => {
+  readJsonBody(req).then(async (body) => {
     const rawPath = String(body?.path || body?.sourcePath || '').trim();
     if (!rawPath) {
       sendJson(res, { error: 'Missing path' }, { status: 400 });
@@ -221,7 +221,15 @@ export function handleFileOperationsApi(
         }, { status: 404 });
         return;
       }
-      fs.rmSync(targetPath, { recursive: true, force: true });
+      // On Windows, rmSync can silently leave targets under non-ASCII paths.
+      await fs.promises.rm(targetPath, { recursive: true, force: true });
+      if (fs.lstatSync(targetPath, { throwIfNoEntry: false })) {
+        sendJson(res, {
+          error: '删除失败，目标仍然存在',
+          code: 'FILE_OPERATION_TARGET_NOT_REMOVED',
+        }, { status: 500 });
+        return;
+      }
       removeDeletedResourceFromMetadata(metadataStore ?? null, projectRoot, targetPath);
       sendJson(res, { success: true });
       return;

@@ -83,6 +83,65 @@ describe('prototype annotation API', () => {
     }
   });
 
+  it('places standalone PRDs alongside prototype pages and moves them without changing their files', async () => {
+    const root = createTempRoot('axhub-make-page-prd-placement-');
+    writePrototypeProject(root);
+    const prototypeDir = path.join(root, 'src/prototypes/home');
+    const sourcePath = path.join(prototypeDir, 'annotation-source.json');
+    const server = await startActivatedProjectServer(root);
+    const send = async (body: object, status = 200) => {
+      const response = await fetch(scopeProjectApiUrl(root, `${server.origin}/api/prototype-annotation/documents`), {
+        method: 'PUT', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ targetPath: 'prototypes/home', ...body }),
+      });
+      const result = await response.json();
+      expect(response.status, result.error).toBe(status);
+      return result;
+    };
+    const readTree = () => JSON.parse(fs.readFileSync(sourcePath, 'utf8')).documents.nodes;
+    const prototypeParent = 'make-page-prd:section:prototype';
+    const overviewParent = 'make-page-prd:section:overview';
+    const firstPlacement = { parentId: prototypeParent, beforeId: 'make-page-prd:page:alpha' };
+    try {
+      await send({ action: 'save-tree', tree: [{ id: 'folder', type: 'folder', title: 'Folder' }] });
+      const first = (await send({ action: 'create', title: 'First', prdPlacement: firstPlacement })).node;
+      const second = (await send({
+        action: 'create', title: 'Second', prdPlacement: { parentId: prototypeParent, beforeId: first.id },
+      })).node;
+      expect(readTree().slice(1).map(({ id, prdPlacement }: typeof first) => [id, prdPlacement])).toEqual([
+        [second.id, firstPlacement], [first.id, firstPlacement],
+      ]);
+      const savedTree = (await send({ action: 'save-tree', tree: readTree() })).source.documents.nodes;
+      expect(savedTree[1].prdPlacement).toEqual(firstPlacement);
+      const firstFile = path.join(prototypeDir, first.markdownPath);
+      fs.writeFileSync(firstFile, 'Edited content');
+      await send({ action: 'move', nodeId: first.id, prdPlacement: { parentId: 'folder' } });
+      expect(readTree()[0].children).toEqual([expect.objectContaining({ id: first.id, markdownPath: first.markdownPath })]);
+      expect(readTree()[0].children[0]).not.toHaveProperty('prdPlacement');
+      await send({ action: 'move', nodeId: first.id, prdPlacement: { parentId: overviewParent, beforeId: 'folder' } });
+      expect(readTree().map(({ id }: typeof first) => id)).toEqual([first.id, 'folder', second.id]);
+      expect(fs.readFileSync(firstFile, 'utf8')).toBe('Edited content');
+      await send({ action: 'move', nodeId: first.id, prdPlacement: { parentId: 'missing' } }, 400);
+      await send({ action: 'move', nodeId: first.id, prdPlacement: { parentId: prototypeParent, beforeId: 'folder' } }, 400);
+      await send({ action: 'move', nodeId: second.id, prdPlacement: { parentId: 'make-page-prd:page:removed' } });
+      await send({ action: 'move', nodeId: first.id, prdPlacement: { parentId: overviewParent, beforeId: second.id } });
+      expect(readTree().map(({ id }: typeof first) => id)).toEqual(['folder', first.id, second.id]);
+      await send({ action: 'create', title: 'Invalid', prdPlacement: null }, 400);
+      expect(fs.existsSync(path.join(prototypeDir, 'docs/Invalid.md'))).toBe(false);
+
+      const binding = await fetch(scopeProjectApiUrl(root,
+        `${server.origin}/api/prototype-annotation/page-prd?targetPath=prototypes/home&pageId=alpha`), {
+        method: 'PUT', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ documentPath: `src/prototypes/home/${first.markdownPath}` }),
+      });
+      expect(binding.status).toBe(200);
+      expect((await send({ action: 'move', nodeId: first.id, prdPlacement: firstPlacement }, 400)).error).toContain('已关联页面 PRD');
+      expect(readTree()[1].id).toBe(first.id);
+    } finally {
+      await server.close();
+    }
+  });
+
   it('reports annotation injection status for official template prototypes', async () => {
     const projectRoot = createTempRoot('axhub-make-prototype-annotation-');
     writePrototypeProject(projectRoot);

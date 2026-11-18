@@ -4,7 +4,7 @@
 - 类型：修改原生实现
 - 状态：已实现
 - 首次可追溯的需求：2026-11-12
-- 最近更新：2026-11-16（审计）
+- 最近更新：2026-11-17
 
 ## 原始需求和原生行为
 
@@ -16,10 +16,13 @@
 
 原型页面单击为灰底选中，当前打开的页面以绿字和绿色图标区分。分组行单击选中，双击只切换展开，折叠箭头单击单独生效。分组行的单击选中延迟 200 毫秒以等待可能的第二击。分组和页面层级契约见 [CUST-002](CUST-002.md)。
 
+2026-11-17 优化原型树分组（空页面）辨识度：原型内部多级页面的分组文件夹在 14px 纯灰线框下易与未激活页面混淆。改为折叠显示蓝色半透明微填充 `Folder`（`fill-blue-500/20 text-blue-600 dark:fill-blue-500/30 dark:text-blue-400`），展开显示对应微填充 `FolderOpen`（`fill-blue-500/25 text-blue-600`），与页面纯灰线框 `File` 及激活翡翠绿 `File` 形成三层视觉区隔。
+
 ## 关联路径
 
 - `src/index/components/sidebar/ContentPanel.tsx`
 - `src/index/components/sidebar/ContentPanel.interactions.test.ts`
+- `src/index/components/sidebar/ContentPanel.source.test.ts`
 
 ## 历史证据
 
@@ -32,3 +35,5 @@ Antigravity 的评估与实施记录保留了复用组件、三击重命名、�
 ## 验证与遗留
 
 2026-11-16 的 `ContentPanel.source.test.ts` 与 `ContentPanel.interactions.test.ts` 共 82 项源码断言通过。浏览器内单双三击时序、键盘焦点、层级移动落盘和跨页签表现尚待实测。当前树节点处理 Tab 时会调用 `preventDefault`，即使没有可缩进的相邻文件夹，也需要验收能否按预期移出焦点。
+
+2026-11-17 执行 `vitest` 验证 `ContentPanel.source.test.ts`（76 项）与 `ContentPanel.interactions.test.ts`（6 项）全部通过，分组文件夹蓝色微填充与开合图标联动断言通过；执行 `scripts/check-customizations.mjs` 核验通过。

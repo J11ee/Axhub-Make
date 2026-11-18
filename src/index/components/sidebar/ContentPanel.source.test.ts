@@ -944,6 +944,8 @@ describe('ContentPanel prototype page children source', () => {
     expect(pageRowsSource).toContain("event.key === 'Enter' || event.key === ' '");
     expect(pageRowsSource).toContain('renderSegment(child, depth + 1)');
     expect(pageRowsSource).toContain('branch.toggle()');
+    expect(pageRowsSource).toContain('fill-blue-500/25 text-blue-600');
+    expect(pageRowsSource).toContain('fill-blue-500/20 text-blue-600');
     expect(pageRowsSource).not.toContain('onTreePersist');
     expect(pageRowsSource).not.toContain('localStorage');
   });

@@ -793,6 +793,13 @@ describe('PresentationToolbar Agent host controls source', () => {
     expect(hostControlsSource).not.toContain('prototypeAnnotationSessionActive ? null : (');
   });
 
+  it('hides document management in center preview toolbar during quick edit annotation mode', () => {
+    const source = readToolbarSource();
+    expect(source).toContain(
+      '{pagePrdManagement && isPreviewContent && !prototypeAnnotationSessionActive && !isQuickEditActive ? documentManagementControl : null}',
+    );
+  });
+
   it('hides element selection and design decision host actions during document annotation', () => {
     const source = readToolbarSource();
     const hostMoreMenuSource = source.slice(

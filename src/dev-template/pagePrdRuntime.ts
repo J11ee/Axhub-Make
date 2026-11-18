@@ -1,6 +1,5 @@
 import {
   buildPagePrdDirectory,
-  pagePrdId,
   PAGE_PRD_CONFIGURE,
   PAGE_PRD_READY,
   PAGE_PRD_SAVED,
@@ -129,10 +128,10 @@ export function installPagePrdRuntimeBridge() {
       }
       adapter.update(entries);
       if (pendingSelection && runtime) {
-        const selection = 'current' in pendingSelection
-          ? { id: pagePrdId(getPageId()), edit: false }
-          : pendingSelection;
-        if (adapter.open(selection.id, selection.edit)) pendingSelection = undefined;
+        const opened = 'current' in pendingSelection
+          ? adapter.openCurrent()
+          : adapter.open(pendingSelection.id, pendingSelection.edit);
+        if (opened) pendingSelection = undefined;
       }
     }).catch((error: unknown) => console.error('[Axhub] 页面 PRD 目录更新失败', error));
   }

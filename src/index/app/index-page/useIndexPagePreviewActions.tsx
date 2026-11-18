@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type SetStateAction } from 'react';
 import { toast } from 'sonner';
-import { PAGE_PRD_CONFIGURE, PAGE_PRD_READY, PAGE_PRD_SAVED, pagePrdUrl, type PagePrdConfiguration, type PagePrdRecords } from '../../../common/pagePrd';
+import { PAGE_PRD_CONFIGURE, PAGE_PRD_READY, PAGE_PRD_SAVED, pagePrdUrl, type PagePrdConfiguration, type PagePrdPlacement, type PagePrdRecords } from '../../../common/pagePrd';
 import { buildPrototypePageSegments } from '../../components/sidebar/prototypePageGroups';
 import { copyImageDataUrlToClipboard, copyToClipboard, writeFigmaOfficialClipboardPayload } from '../../utils/clipboard';
 import { buildEditorUrl, buildItemUrl, buildLANItemUrl } from '../../utils/url';
@@ -4353,6 +4353,7 @@ export function useIndexPagePreviewActions(params: any) {
             }
             setPrototypeAnnotationDocumentsFromSource(result.source);
             getPreviewIframes().forEach((iframe) => configurePagePrd(iframe, { reload: true }));
+            if (pagePrdTarget) return result;
             if (!result.source || !replaceMountedPrototypeAnnotationSource(result.source)) {
                 handleRefreshElement();
             }
@@ -4368,6 +4369,7 @@ export function useIndexPagePreviewActions(params: any) {
         getPreviewIframes,
         handleRefreshElement,
         messageApi,
+        pagePrdTarget,
         projectId,
         replaceMountedPrototypeAnnotationSource,
         selectedItem,
@@ -4381,6 +4383,14 @@ export function useIndexPagePreviewActions(params: any) {
             title: '新文档',
         });
     }, [mutatePrototypeAnnotationDocuments]);
+
+    const handleCreatePagePrdDocument = useCallback(async (prdPlacement: PagePrdPlacement) =>
+        !!(await mutatePrototypeAnnotationDocuments({ action: 'create', title: '新文档', prdPlacement })),
+    [mutatePrototypeAnnotationDocuments]);
+
+    const handlePlacePagePrdDocument = useCallback(async (nodeId: string, prdPlacement: PagePrdPlacement) =>
+        !!(await mutatePrototypeAnnotationDocuments({ action: 'move', nodeId, prdPlacement })),
+    [mutatePrototypeAnnotationDocuments]);
 
     const handlePersistPrototypeAnnotationDocumentTree = useCallback(async (tree: AnnotationDocumentDirectoryNode[]) => {
         await mutatePrototypeAnnotationDocuments({ action: 'save-tree', tree });
@@ -5491,6 +5501,8 @@ export function useIndexPagePreviewActions(params: any) {
             records: pagePrdRecords,
             onBind: handleBindPagePrd,
             onOpen: handleOpenPagePrd,
+            onCreateAt: handleCreatePagePrdDocument,
+            onPlaceDocument: handlePlacePagePrdDocument,
         } : undefined,
         prototypeAnnotationDocumentsLoading,
         handleLoadPrototypeAnnotationDocuments,

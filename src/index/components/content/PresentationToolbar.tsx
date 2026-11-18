@@ -1822,7 +1822,7 @@ export default function PresentationToolbar({
             <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2">
                 <div className="flex items-center gap-1 [&>*]:self-center text-[12px]">
                     {actionButtons}
-                    {pagePrdManagement && isPreviewContent && !prototypeAnnotationSessionActive ? documentManagementControl : null}
+                    {pagePrdManagement && isPreviewContent && !prototypeAnnotationSessionActive && !isQuickEditActive ? documentManagementControl : null}
                 </div>
             </div>
 

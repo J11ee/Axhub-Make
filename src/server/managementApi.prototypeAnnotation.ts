@@ -2,6 +2,7 @@ import type { IncomingMessage, ServerResponse } from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
 import ts from 'typescript';
+import { PRD_OVERVIEW_ID, PRD_PROTOTYPE_ID, type PagePrdPlacement } from '../common/pagePrdPlacement.ts';
 
 import { isPathInside, resolveProjectPath, type ProjectMetadata } from './projectCore/index.ts';
 
@@ -46,6 +47,7 @@ type AnnotationDocumentNode = {
   markdownPath?: string;
   htmlPath?: string;
   children?: AnnotationDocumentNode[];
+  prdPlacement?: PagePrdPlacement;
   [key: string]: unknown;
 };
 
@@ -241,7 +243,7 @@ function isSafeHtmlDocumentPath(value: string): boolean {
 
 function normalizeDocumentNode(input: unknown): AnnotationDocumentNode | null {
   if (!input || typeof input !== 'object' || Array.isArray(input)) return null;
-  const record = input as Record<string, unknown>;
+  const { prdPlacement: placementInput, ...record } = input as Record<string, unknown>;
   const type = record.type === 'folder' || record.type === 'markdown' || record.type === 'html' ? record.type : null;
   const id = typeof record.id === 'string' ? record.id.trim() : '';
   const title = typeof record.title === 'string' ? record.title.trim() : '';
@@ -263,7 +265,24 @@ function normalizeDocumentNode(input: unknown): AnnotationDocumentNode | null {
     !documentPath
     || (type === 'html' && (!/\.html?$/iu.test(documentPath) || !isSafeHtmlDocumentPath(documentPath)))
   ) return null;
-  return { ...record, type, id, title, [pathKey]: documentPath };
+  const prdPlacement = type === 'markdown' ? normalizeDocumentPlacement(placementInput) : undefined;
+  return { ...record, type, id, title, [pathKey]: documentPath, ...(prdPlacement ? { prdPlacement } : {}) };
+}
+
+function normalizeDocumentPlacement(input: unknown): PagePrdPlacement | undefined {
+  if (!input || typeof input !== 'object' || Array.isArray(input)) return undefined;
+  const { parentId, beforeId } = input as Record<string, unknown>;
+  if (!isPlacementId(parentId)) return undefined;
+  if (beforeId === undefined) return { parentId };
+  return isPlacementId(beforeId) ? { parentId, beforeId } : undefined;
+}
+
+function isPlacementId(value: unknown): value is string {
+  return typeof value === 'string' && value.length > 0 && value === value.trim() && !/[\u0000-\u001f\u007f]/u.test(value);
+}
+
+function isPrototypeDocumentId(id: string): boolean {
+  return /^make-page-prd:(?:page:[a-z0-9-]+|group:.+)$/u.test(id);
 }
 
 function readAnnotationSource(resolved: Extract<ResolveResult, { ok: true }>): AnnotationSourceDocument {
@@ -849,12 +868,48 @@ function insertDocumentNodeIntoFolder(nodes: AnnotationDocumentNode[], folderId:
   return false;
 }
 
+function placeManagedDocument(
+  nodes: AnnotationDocumentNode[],
+  node: AnnotationDocumentNode,
+  input: unknown,
+): void {
+  const placement = normalizeDocumentPlacement(input);
+  if (!placement || placement.beforeId === node.id) throw new Error('Invalid PRD placement');
+  const { parentId } = placement;
+  const prototypeParent = parentId === PRD_PROTOTYPE_ID || isPrototypeDocumentId(parentId);
+  let siblings = nodes;
+  if (parentId !== PRD_OVERVIEW_ID && !prototypeParent) {
+    const folder = findDocumentNodeById(nodes, parentId);
+    if (folder?.type !== 'folder') throw new Error('Document folder not found');
+    siblings = folder.children ??= [];
+  }
+  let beforeId = placement.beforeId;
+  let beforeNode: AnnotationDocumentNode | undefined;
+  if (beforeId && isPrototypeDocumentId(beforeId)) {
+    if (!prototypeParent || beforeId === parentId) throw new Error('Invalid PRD placement anchor');
+  } else if (beforeId) {
+    beforeNode = siblings.find((sibling) => sibling.id === beforeId);
+    const effectiveParentId = beforeNode?.prdPlacement?.parentId ?? (siblings === nodes ? PRD_OVERVIEW_ID : parentId);
+    // The current projection may show a root document in overview after its prototype parent disappears.
+    if (!beforeNode || (effectiveParentId !== parentId && parentId !== PRD_OVERVIEW_ID)) {
+      throw new Error('Document sibling not found');
+    }
+    beforeId = beforeNode.prdPlacement?.beforeId;
+  }
+  // Keep the native tree usable when independently opening the annotation source.
+  delete node.prdPlacement;
+  if (prototypeParent) node.prdPlacement = beforeId ? { parentId, beforeId } : { parentId };
+  removeDocumentNodeById(nodes, node.id);
+  siblings.splice(beforeNode ? siblings.indexOf(beforeNode) : siblings.length, 0, node);
+}
+
 function createManagedDocument(
   source: AnnotationSourceDocument,
   projectRoot: string,
   resolved: Extract<ResolveResult, { ok: true }>,
   titleInput: unknown,
   folderIdInput: unknown,
+  placementInput: unknown,
 ): AnnotationDocumentNode {
   const title = String(titleInput ?? '').trim() || '新文档';
   const documents = source.documents || { nodes: [] };
@@ -887,10 +942,13 @@ function createManagedDocument(
     readerMode: 'split',
   };
   const folderId = typeof folderIdInput === 'string' ? folderIdInput.trim() : '';
-  if (folderId && !insertDocumentNodeIntoFolder(documents.nodes, folderId, node)) {
+  if (placementInput !== undefined) {
+    placeManagedDocument(documents.nodes, node, placementInput);
+  } else if (folderId && !insertDocumentNodeIntoFolder(documents.nodes, folderId, node)) {
     throw new Error('Document folder not found');
+  } else if (!folderId) {
+    documents.nodes.push(node);
   }
-  if (!folderId) documents.nodes.push(node);
   const filePath = resolveDocumentFilePath(projectRoot, resolved.sourceFilePath, node.markdownPath);
   fs.mkdirSync(path.dirname(filePath), { recursive: true });
   fs.writeFileSync(filePath, `# ${title}\n`, 'utf8');
@@ -1034,7 +1092,27 @@ export function handlePrototypeAnnotationApi(
         source.documents = source.documents || { nodes: [] };
         const action = String(record.action || '').trim();
         if (action === 'create') {
-          const node = createManagedDocument(source, context.project.root, resolved, record.title, record.folderId);
+          const node = createManagedDocument(source, context.project.root, resolved, record.title, record.folderId, record.prdPlacement);
+          source.data.updatedAt = Date.now();
+          writeAnnotationSource(resolved, source);
+          sendCorsJson(res, {
+            ok: true,
+            action,
+            node,
+            source: readPreprocessedAnnotationSource(resolved),
+            path: resolved.projectRelativeSourcePath,
+          });
+          return;
+        }
+        if (action === 'move') {
+          const node = isPlacementId(record.nodeId) ? findDocumentNodeById(source.documents.nodes, record.nodeId) : null;
+          if (node?.type !== 'markdown') throw new Error('Markdown document not found');
+          const filePath = resolveDocumentFilePath(context.project.root, resolved.sourceFilePath, node.markdownPath);
+          const projectRelativePath = path.relative(context.project.root, filePath).split(path.sep).join('/');
+          if (createPrototypePagePrdStore(context.project.root, resolved.prototypeDir).isBound(projectRelativePath)) {
+            throw new Error('该文档已关联页面 PRD，不能从文档管理移动');
+          }
+          placeManagedDocument(source.documents.nodes, node, record.prdPlacement);
           source.data.updatedAt = Date.now();
           writeAnnotationSource(resolved, source);
           sendCorsJson(res, {

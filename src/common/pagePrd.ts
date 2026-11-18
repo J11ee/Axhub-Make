@@ -1,18 +1,21 @@
 import type { AnnotationDocumentDirectoryNode } from '../index/types';
 import type { PrototypePageSegment } from '../index/components/sidebar/prototypePageGroups';
 import { stripMarkdownPreviewFrontmatter } from '../spec-template/previewMarkdownContent';
+import { PRD_OVERVIEW_ID, PRD_PROTOTYPE_ID, type PagePrdPlacement } from './pagePrdPlacement';
+
+export { PRD_OVERVIEW_ID, PRD_PROTOTYPE_ID, type PagePrdPlacement } from './pagePrdPlacement';
 
 export const PAGE_PRD_CONFIGURE = 'AXHUB_PAGE_PRD_CONFIGURE';
 export const PAGE_PRD_READY = 'AXHUB_PAGE_PRD_READY';
 export const PAGE_PRD_SAVED = 'AXHUB_PAGE_PRD_SAVED';
 export const PAGE_PRD_SOURCE_CHANGED = 'AXHUB_PAGE_PRD_SOURCE_CHANGED';
-export const FULL_PRD_ID = 'make-page-prd:all';
+export type PagePrdStatus = 'unbound' | 'missing';
 export const pagePrdId = (pageId: string) => `make-page-prd:page:${pageId}`;
 
 export type PagePrdScope = { projectId: string; targetPath: string };
 export type PagePrdRecord = { path: string; content: string; missing?: boolean };
 export type PagePrdRecords = Record<string, PagePrdRecord>;
-export type PagePrdEntry = { id: string; pageId?: string; contentUrl?: string; pageUrl?: string; all?: boolean };
+export type PagePrdEntry = { id: string; pageId?: string; contentUrl?: string; pageUrl?: string; status?: PagePrdStatus };
 export type PagePrdConfiguration = PagePrdScope & {
     type: typeof PAGE_PRD_CONFIGURE;
     makeOrigin: string;
@@ -58,27 +61,117 @@ function stripBoundDocuments(
     return nodes.flatMap((node) => {
         if (node.type === 'folder') {
             const children = stripBoundDocuments(scope, node.children ?? [], boundPaths);
-            return children.length || !node.children?.length ? [{ ...node, children }] : [];
+            return [{ ...node, children }];
         }
         if (node.markdownPath && boundPaths.has(annotationDocumentPath(scope, node.markdownPath))) return [];
         return [node];
     });
 }
 
-export function buildFullPagePrd(pages: readonly PrototypePageSegment[], records: PagePrdRecords): string {
-    const sections = ['# 整篇 PRD'];
-    function visit(nodes: readonly PrototypePageSegment[], level: number) {
-        for (const node of nodes) {
-            const title = node.kind === 'page' ? node.page.title : node.title;
-            sections.push(`${'#'.repeat(Math.min(level, 6))} ${title.replace(/[\r\n]+/gu, ' ')}`);
-            if (node.kind === 'page') {
-                const body = records[node.page.id]?.content;
-                if (body) sections.push(nestMarkdownHeadings(stripMarkdownPreviewFrontmatter(body), level));
+export type PagePrdTreeNode = {
+    id: string;
+    title: string;
+    number: string;
+    kind: 'section' | 'group' | 'page' | 'folder' | 'markdown' | 'html';
+    children: PagePrdTreeNode[];
+    pageId?: string;
+    status?: PagePrdStatus;
+    document?: AnnotationDocumentDirectoryNode;
+};
+
+type UnnumberedNode = Omit<PagePrdTreeNode, 'number' | 'children'> & { children: UnnumberedNode[] };
+
+export function buildPagePrdTree(
+    pages: readonly PrototypePageSegment[],
+    records: PagePrdRecords,
+    ordinary: readonly AnnotationDocumentDirectoryNode[],
+    scope: PagePrdScope,
+): PagePrdTreeNode[] {
+    const parents = new Map<string, UnnumberedNode>();
+    const placements: { node: UnnumberedNode; placement: PagePrdPlacement }[] = [];
+
+    function prototypeNodes(segments: readonly PrototypePageSegment[]): UnnumberedNode[] {
+        return segments.map((segment) => {
+            if (segment.kind === 'group') {
+                // Legacy groups use a positional key in the sidebar. Persist their identity by content.
+                const explicit = segment.key.startsWith(`${scope.targetPath}:folder:`);
+                const pageIds = segment.children.flatMap((child) => child.kind === 'page' ? [child.page.id] : []);
+                const key = explicit ? segment.key : `legacy:${segment.title}:${pageIds.sort()[0] ?? segment.key}`;
+                const node: UnnumberedNode = {
+                    id: `make-page-prd:group:${key}`, title: segment.title, kind: 'group',
+                    children: prototypeNodes(segment.children),
+                };
+                parents.set(node.id, node);
+                return node;
             }
+            const { id: pageId, title } = segment.page;
+            const record = records[pageId];
+            const node: UnnumberedNode = {
+                id: pagePrdId(pageId), title, kind: 'page', pageId,
+                status: record?.missing ? 'missing' : record ? undefined : 'unbound',
+                children: prototypeNodes(segment.children),
+            };
+            parents.set(node.id, node);
+            return node;
+        });
+    }
+
+    function ordinaryNodes(items: readonly AnnotationDocumentDirectoryNode[]): UnnumberedNode[] {
+        return items.flatMap((document) => {
+            const node: UnnumberedNode = {
+                id: document.id, title: document.title, kind: document.type, document,
+                children: ordinaryNodes(document.children ?? []),
+            };
+            if (document.type === 'folder') parents.set(node.id, node);
+            const placement = document.prdPlacement;
+            if (document.type === 'markdown' && placement && parents.has(placement.parentId)) {
+                placements.push({ node, placement });
+                return [];
+            }
+            return [node];
+        });
+    }
+
+    const prototype: UnnumberedNode = {
+        id: PRD_PROTOTYPE_ID, title: '原型说明', kind: 'section', children: prototypeNodes(pages),
+    };
+    parents.set(prototype.id, prototype);
+    const overview: UnnumberedNode = {
+        id: PRD_OVERVIEW_ID, title: '产品总述', kind: 'section',
+        children: ordinaryNodes(stripBoundDocuments(scope, ordinary, getActivePagePrdPaths(pages, records))),
+    };
+    for (const { node, placement } of placements) {
+        const parent = parents.get(placement.parentId) ?? overview;
+        const before = parent.children.findIndex((child) =>
+            (child.kind === 'page' || child.kind === 'group') && child.id === placement.beforeId);
+        parent.children.splice(before === -1 ? parent.children.length : before, 0, node);
+    }
+
+    function numberNodes(nodes: UnnumberedNode[], parent = ''): PagePrdTreeNode[] {
+        return nodes.map((node, index) => {
+            const number = parent ? `${parent}.${index + 1}` : String(index + 1);
+            return { ...node, number, children: numberNodes(node.children, number) };
+        });
+    }
+    return numberNodes([overview, prototype]);
+}
+
+export function numberedPrdTitle(node: PagePrdTreeNode): string {
+    return `${node.number}${node.kind === 'section' ? '.' : ''} ${node.title}`;
+}
+
+export function buildFullPagePrd(tree: readonly PagePrdTreeNode[], records: PagePrdRecords): string {
+    const sections: string[] = [];
+    function visit(nodes: readonly PagePrdTreeNode[], level: number) {
+        for (const node of nodes) {
+            if (node.kind === 'html') continue;
+            sections.push(`${'#'.repeat(Math.min(level, 6))} ${numberedPrdTitle(node).replace(/[\r\n]+/gu, ' ')}`);
+            const body = node.pageId ? records[node.pageId]?.content : node.document?.markdown;
+            if (body) sections.push(nestMarkdownHeadings(stripMarkdownPreviewFrontmatter(body), level));
             visit(node.children, level + 1);
         }
     }
-    visit(pages, 2);
+    visit(tree, 1);
     return sections.join('\n\n');
 }
 
@@ -102,7 +195,7 @@ export function buildPagePrdDirectory(
     config: PagePrdScope & { pages: readonly PrototypePageSegment[] },
     records: PagePrdRecords,
     ordinary: readonly AnnotationDocumentDirectoryNode[],
-): { nodes: AnnotationDocumentDirectoryNode[]; entries: PagePrdEntry[] } {
+) {
     const ordinaryMarkdown = new Map<string, string>();
     function readOrdinaryMarkdown(items: readonly AnnotationDocumentDirectoryNode[]) {
         for (const item of items) {
@@ -116,51 +209,46 @@ export function buildPagePrdDirectory(
     const readableRecords = Object.fromEntries(Object.entries(records).map(([pageId, record]) => [
         pageId, { ...record, content: ordinaryMarkdown.get(record.path) ?? record.content },
     ]));
-    const entries: PagePrdEntry[] = [{ id: FULL_PRD_ID, all: true }];
-    function visit(segments: readonly PrototypePageSegment[]): AnnotationDocumentDirectoryNode[] {
-        return segments.map((segment) => {
-            if (segment.kind === 'group') {
-                return { type: 'folder', id: `make-page-prd:group:${segment.key}`, title: segment.title, defaultExpanded: true, children: visit(segment.children) };
-            }
-            const { id: pageId, title } = segment.page;
+    const tree = buildPagePrdTree(config.pages, records, ordinary, config);
+    const entries: PagePrdEntry[] = [];
+    function toReaderNode(item: PagePrdTreeNode): AnnotationDocumentDirectoryNode {
+        const { id, pageId, document } = item;
+        const title = numberedPrdTitle(item);
+        if (pageId) {
             const record: PagePrdRecord | undefined = readableRecords[pageId];
-            const id = pagePrdId(pageId);
             const pageUrl = pagePrdUrl(config, pageId);
             entries.push({
-                id, pageId, pageUrl,
+                id, pageId, pageUrl, status: item.status,
                 contentUrl: record && !record.missing ? documentContentUrl(config.projectId, record.path) : pageUrl,
             });
             const node: AnnotationDocumentDirectoryNode = {
-                type: 'markdown', id,
-                title: record && !record.missing ? title : `${title}（未编写）`,
+                type: 'markdown', id, title,
                 ...(record?.path.startsWith(`src/${config.targetPath}/`)
                     ? { markdownPath: record.path.slice(`src/${config.targetPath}/`.length) }
                     : {}),
-                markdown: record?.missing
-                    ? '原文档已移动或不存在。请在文档管理重新关联，或编辑并恢复原文件。'
-                    : (record ? stripMarkdownPreviewFrontmatter(record.content) : '此页还没有 PRD。点击「编辑」开始编写。'),
+                markdown: record && !record.missing ? stripMarkdownPreviewFrontmatter(record.content) : '',
                 readerMode: 'split',
             };
-            if (!segment.children.length) return node;
+            if (!item.children.length) return node;
             return {
-                type: 'folder', id: `make-page-prd:branch:${pageId}`, title: node.title, defaultExpanded: true,
-                children: [node, ...visit(segment.children)],
+                type: 'folder', id: `make-page-prd:branch:${pageId}`, title, defaultExpanded: true,
+                children: [node, ...item.children.map(toReaderNode)],
             };
-        });
-    }
-    const nodes = [
-        { type: 'markdown' as const, id: FULL_PRD_ID, title: '整篇 PRD', markdown: buildFullPagePrd(config.pages, readableRecords), readerMode: 'split' },
-        ...visit(config.pages),
-    ];
-    const unbound = stripBoundDocuments(config, ordinary, getActivePagePrdPaths(config.pages, records));
-    function collectOrdinary(items: readonly AnnotationDocumentDirectoryNode[]) {
-        for (const item of items) {
-            if (item.children) collectOrdinary(item.children);
-            else if (item.type === 'markdown' && item.markdownPath) {
-                entries.push({ id: item.id, contentUrl: documentContentUrl(config.projectId, annotationDocumentPath(config, item.markdownPath)) });
-            } else if (item.type !== 'folder') entries.push({ id: item.id });
         }
+        if (document && document.type !== 'folder') {
+            const { prdPlacement: _placement, ...readerDocument } = document;
+            entries.push({
+                id,
+                contentUrl: document.type === 'markdown' && document.markdownPath
+                    ? documentContentUrl(config.projectId, annotationDocumentPath(config, document.markdownPath))
+                    : undefined,
+            });
+            return { ...readerDocument, title };
+        }
+        return {
+            ...document, type: 'folder', id, title,
+            defaultExpanded: document?.defaultExpanded ?? true, children: item.children.map(toReaderNode),
+        };
     }
-    collectOrdinary(unbound);
-    return { nodes: [...nodes, ...unbound], entries };
+    return { tree, nodes: tree.map(toReaderNode), entries, fullMarkdown: buildFullPagePrd(tree, readableRecords) };
 }
