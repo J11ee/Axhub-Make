@@ -20,6 +20,7 @@
     "src/common/aiArtifactClassification.ts",
     "src/common/editorLaunchQuery.ts",
     "src/common/pagePrdPlacement.ts",
+    "src/common/pagePrdRecords.ts",
     "src/index/domains/assistant/makeVoiceCommentPersistence.ts",
     "src/index/domains/assistant/makeVoiceTools.ts",
     "src/chunking/excalidrawDevCjsInterop.ts",

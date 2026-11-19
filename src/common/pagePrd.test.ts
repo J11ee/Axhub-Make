@@ -10,6 +10,23 @@ const center = { kind: 'group', id: 'center', title: '公文中心', children: [
 ] } as const;
 
 describe('page PRD projection', () => {
+    it('prepares saved highlights for the shared workbench and exported reader', () => {
+        const segments = buildPrototypePageSegments(scope.targetPath, pages);
+        const legacy = '- ==淡黄色==\n  - ==**子项**==';
+        const colored = '<mark data-color="#dcfce7" style="background-color: #dcfce7; color: inherit">绿色</mark>';
+        const code = '`==代码==`\n\n```text\n==代码块==\n```';
+        const content = [legacy, colored, code, '\\==原文=='].join('\n\n');
+        const record = { path: 'src/prototypes/demo/docs/board.md', content };
+        const { nodes, fullMarkdown } = buildPagePrdDirectory({ ...scope, pages: segments }, { board: record }, []);
+        const document = nodes[1].children?.find(({ id }) => id === pagePrdId('board'));
+        expect(document?.markdown).toContain('background-color: #fef9c3; color: inherit">淡黄色</mark>');
+        expect(document?.markdown).toContain('background-color: #fef9c3; color: inherit">**子项**</mark>');
+        expect(document?.markdown).toContain(colored);
+        expect(document?.markdown).toContain(code);
+        expect(document?.markdown).toContain('\\==原文==');
+        expect(fullMarkdown).toContain(content);
+    });
+
     it('numbers sections, grouping nodes and true pages even when a page has no binding', () => {
         const segments = buildPrototypePageSegments(scope.targetPath, pages, [
             { ...center, children: [{ kind: 'page', id: 'board', children: [{ kind: 'page', id: 'urge' }] }] },

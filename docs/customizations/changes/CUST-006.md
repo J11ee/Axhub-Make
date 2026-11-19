@@ -1,11 +1,11 @@
-# CUST-006 PRD 编辑器表格与文字颜色
+# CUST-006 PRD 编辑器表格、文字颜色与高光
 
 - 模块：富文本编辑与 Markdown 预览
 - 类型：复用编辑器扩展
-- 状态：已实施表格及文字颜色工具
+- 状态：已实施表格、文字颜色及高光颜色修复
 - 首次可追溯的专项调研：2026-11-13
 - 首次实施：2026-11-16
-- 最近更新：2026-11-17
+- 最近更新：2026-11-18
 
 ## 原始需求和原生行为
 
@@ -25,12 +25,19 @@
 - `src/spec-template/richMarkdownEditorTable.test.ts`
 - `src/spec-template/richMarkdownEditorRoundTrip.test.ts`
 - `src/spec-template/makeDocumentTableKit.ts`
+- `src/spec-template/makeDocumentHighlight.ts`
 - `src/spec-template/markdownTextColor.ts`
 - `src/spec-template/makeRichMarkdownEditorVitePlugin.ts`
 - `src/spec-template/makeRichMarkdownEditorDependencies.d.ts`
 - `vite.config.ts`
 - `vitest.config.ts`
 - `tsconfig.node.json`
+- `src/common/markdown/markdownHighlight.ts`
+- `src/common/markdown/ReadOnlyMarkdown.tsx`
+- `src/common/pagePrd.ts`
+- `src/common/pagePrd.test.ts`
+- `src/server/__tests__/onDemandBuild.test.ts`
+- `package.json`
 
 ## 实施与变更记录
 
@@ -58,3 +65,11 @@ Antigravity 的历史调研记录了表格与文字颜色需求及可行性结�
 2026-11-17：工具栏调整通过旧入口、表格命令和 Markdown 往返共 29 项测试。Vite 生产构建通过，53817 正在运行的本地源码服务已返回新入口版本和工具栏脚本。构建使用现有依赖，关闭 pnpm 的运行前依赖检查以避免新版 pnpm 尝试重新安装。
 
 使用 Playwright 在 1084px 视口及 790px 嵌入框验证 53817 的实际页面 PRD 编辑入口。工具栏宽 694px，换行后横向溢出为 0，两个按钮均可见。通过界面给选中文字着色，插入 3 × 3 表格。浏览器使用临时正文，未保存到项目。
+
+### 2026-11-18 页面需求高光
+
+原富文本扩展把所有高光写为 `==文字==`，阅读器显示原始符号，重新编辑时浏览器用默认亮黄色显示。延用文档编辑器的构建扩展入口，只替换该入口的高光标记解析和序列化。九种预设色保存为带十六进制色值的行内 `mark`，重开时恢复原工具栏识别的色值。侧栏查看和 HTML 离线导出共用页面需求目录投影，将旧标记显示为 `#fef9c3`。普通文档预览依据解析后保留的颜色属性设置背景色。保留原格式的读取能力，不批量改写文档。旧文档中已经丢失的具体色值无法恢复，统一按淡黄色显示。
+
+上游升级时核对高光扩展注入点、预设色、Markdown 内联解析及阅读器的 `mark` 渲染。撤销本节相关源码和构建接入即可回退，原文档仍可按 Markdown 读取。回退后的旧编辑器重新保存时会丢失带颜色的高光，应保留文档历史。已生成的旧 HTML 包需重新导出。改动未提交。
+
+77 项编辑器、需求目录和导出接口定向测试，以及 1 项实际 HTML 构建测试通过。九种预设色均覆盖保存、重开和清除测试。管理端和 Axure 运行时生产构建、服务端与改动模块类型检查通过。Edge 验证 53817 工作台「提交下一步」旧正文呈淡黄色，临时文档通过真实工具栏选色、拦截保存、重开和 Markdown 预览。使用同一原型的隔离副本生成 HTML，在阻断网络请求时核对旧高光及九种预设背景色。未写入原项目文档。

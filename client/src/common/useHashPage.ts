@@ -104,20 +104,18 @@ function notifyHostPrototypeRouteInfo(
     activePageId: string,
     pageTree?: HashPageTreeNode[],
 ) {
-    if (
-        pages.length === 0
-        || typeof window === 'undefined'
-        || window.parent === window
-    ) {
+    if (pages.length === 0 || typeof window === 'undefined') {
         return;
     }
-    window.parent.postMessage({
+    const routeInfo = {
         type: 'AXHUB_PROTOTYPE_ROUTE_INFO',
         pages,
         ...(pageTree ? { pageTree } : {}),
         defaultPageId,
         activePageId,
-    }, '*');
+    };
+    window.dispatchEvent(new CustomEvent('axhub:prototype-route-info', { detail: routeInfo }));
+    if (window.parent !== window) window.parent.postMessage(routeInfo, '*');
 }
 
 export function useHashPage(routeOrDefault: HashPageRoute | string = 'home') {

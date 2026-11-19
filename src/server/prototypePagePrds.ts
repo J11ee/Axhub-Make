@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { isResolvedProjectPathSafe, resolveProjectDocumentContentFile } from './managementApi.projectRegistry.ts';
+import type { PagePrdRecord, PagePrdRecords } from '../common/pagePrdRecords.ts';
 
 const PAGE_ID = /^[a-z0-9-]+$/u;
 const BINDINGS_FILE = '.page-prds.json';
@@ -48,13 +49,16 @@ export function createPrototypePagePrdStore(projectRoot: string, prototypeDir: s
     return file.projectRelativePath;
   }
 
-  function read(pageId: string) {
-    if (!PAGE_ID.test(pageId)) throw new Error('Invalid page ID');
-    const binding = bindings.get(pageId);
-    if (!binding) return { content: '' };
+  function readBinding(binding: string): PagePrdRecord {
     const file = resolveMarkdown(binding);
     const exists = fs.existsSync(file.path) && fs.statSync(file.path).isFile();
     return { path: file.projectRelativePath, content: exists ? fs.readFileSync(file.path, 'utf8') : '', missing: !exists };
+  }
+
+  function read(pageId: string) {
+    if (!PAGE_ID.test(pageId)) throw new Error('Invalid page ID');
+    const binding = bindings.get(pageId);
+    return binding ? readBinding(binding) : { content: '' };
   }
 
   function save(pageId: string, content: string) {
@@ -81,6 +85,9 @@ export function createPrototypePagePrdStore(projectRoot: string, prototypeDir: s
   return {
     bind, read, save,
     isBound: (projectRelativePath: string) => [...bindings.values()].includes(projectRelativePath),
-    list: () => Object.fromEntries([...bindings.keys()].map((pageId) => [pageId, read(pageId)])),
+    list: (): PagePrdRecords => Object.fromEntries([...bindings].map(([pageId, binding]) => {
+      if (!PAGE_ID.test(pageId)) throw new Error('Invalid page ID');
+      return [pageId, readBinding(binding)];
+    })),
   };
 }

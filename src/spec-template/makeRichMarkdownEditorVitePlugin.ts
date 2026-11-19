@@ -6,6 +6,7 @@ const editorModuleQuery = 'make-document-editor';
 const documentEditorImport = `tiptap-editor?${editorModuleQuery}`;
 const featureDirectory = path.dirname(fileURLToPath(import.meta.url));
 const documentTableKitPath = path.join(featureDirectory, 'makeDocumentTableKit.ts');
+const documentHighlightPath = path.join(featureDirectory, 'makeDocumentHighlight.ts');
 
 function withoutQuery(id: string): string {
     return id.split('?', 1)[0].replace(/\\/gu, '/');
@@ -40,6 +41,7 @@ export function makeRichMarkdownEditorVitePlugin(): Plugin {
             const isDocumentEditorImporter = importer.startsWith(`${vendorEditorEntry}?${editorModuleQuery}`);
             if (vendorEditorEntry && normalizedImporter === vendorEditorEntry && isDocumentEditorImporter) {
                 if (source === '@tiptap/extension-table') return documentTableKitPath;
+                if (source === '@tiptap/extension-highlight') return documentHighlightPath;
                 return null;
             }
 

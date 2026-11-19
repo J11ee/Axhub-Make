@@ -62,6 +62,7 @@ export function installPagePrdRuntimeBridge() {
     navigate,
     getCurrentPageId: getPageId,
     getMakeOrigin: () => config?.makeOrigin || '',
+    workbench: true,
     onEditClosed: () => update(),
     onSaved: () => {
       if (config) window.parent.postMessage({ type: PAGE_PRD_SAVED, ...scope(config) }, config.makeOrigin);

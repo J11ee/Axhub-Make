@@ -1,9 +1,10 @@
 import { Editor } from '@tiptap/core';
-import { Highlight } from '@tiptap/extension-highlight';
 import { Markdown } from '@tiptap/markdown';
 import { StarterKit } from '@tiptap/starter-kit';
 import { describe, expect, it } from 'vitest';
 import { MakeDocumentTableKit } from './makeDocumentTableKit';
+import { Highlight } from './makeDocumentHighlight';
+import { markdownHighlightTag } from '../common/markdown/markdownHighlight';
 
 function createEditor(content: unknown, contentType: 'json' | 'markdown' = 'json') {
     return new Editor({
@@ -25,6 +26,34 @@ function getOnlyTextNode(editor: Editor) {
 }
 
 describe('PRD Markdown color extensions', () => {
+    it.each([
+        ['gray', '#f8f8f7'], ['brown', '#f4eeee'], ['orange', '#fbecdd'],
+        ['yellow', '#fef9c3'], ['green', '#dcfce7'], ['blue', '#e0f2fe'],
+        ['purple', '#f3e8ff'], ['pink', '#fcf1f6'], ['red', '#ffe4e6'],
+    ])('keeps the %s palette color after saving and reopening', (preset, color) => {
+        const paletteValue = `var(--tt-color-highlight-${preset})`;
+        const editor = createEditor('可选处理人', 'markdown');
+        editor.commands.selectAll();
+        expect(editor.commands.setHighlight({ color: paletteValue })).toBe(true);
+        expect(editor.commands.setTextColor('#c62828')).toBe(true);
+
+        const markdown = editor.getMarkdown();
+        expect(markdown).toContain(markdownHighlightTag(color));
+        const reopened = createEditor(markdown, 'markdown');
+        expect(getOnlyTextNode(reopened)?.marks).toEqual(expect.arrayContaining([
+            { type: 'highlight', attrs: { color: paletteValue } },
+            { type: 'textColor', attrs: { color: '#c62828' } },
+        ]));
+        expect(reopened.getMarkdown()).toBe(markdown);
+        reopened.commands.selectAll();
+        expect(reopened.commands.unsetHighlight()).toBe(true);
+        expect(reopened.getMarkdown()).not.toContain('<mark');
+        expect(reopened.getMarkdown()).toContain('data-axhub-text-color="#c62828"');
+
+        reopened.destroy();
+        editor.destroy();
+    });
+
     it('round-trips the table created and resized by real TableKit commands', () => {
         const editor = createEditor('页面 PRD', 'markdown');
         expect(editor.commands.insertTable({ rows: 2, cols: 2, withHeaderRow: true })).toBe(true);

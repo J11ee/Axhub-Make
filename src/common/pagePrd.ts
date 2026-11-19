@@ -1,9 +1,12 @@
 import type { AnnotationDocumentDirectoryNode } from '../index/types';
 import type { PrototypePageSegment } from '../index/components/sidebar/prototypePageGroups';
 import { stripMarkdownPreviewFrontmatter } from '../spec-template/previewMarkdownContent';
+import { renderLegacyMarkdownHighlights } from './markdown/markdownHighlight';
 import { PRD_OVERVIEW_ID, PRD_PROTOTYPE_ID, type PagePrdPlacement } from './pagePrdPlacement';
+import type { PagePrdRecord, PagePrdRecords } from './pagePrdRecords';
 
 export { PRD_OVERVIEW_ID, PRD_PROTOTYPE_ID, type PagePrdPlacement } from './pagePrdPlacement';
+export type { PagePrdRecord, PagePrdRecords } from './pagePrdRecords';
 
 export const PAGE_PRD_CONFIGURE = 'AXHUB_PAGE_PRD_CONFIGURE';
 export const PAGE_PRD_READY = 'AXHUB_PAGE_PRD_READY';
@@ -13,8 +16,6 @@ export type PagePrdStatus = 'unbound' | 'missing';
 export const pagePrdId = (pageId: string) => `make-page-prd:page:${pageId}`;
 
 export type PagePrdScope = { projectId: string; targetPath: string };
-export type PagePrdRecord = { path: string; content: string; missing?: boolean };
-export type PagePrdRecords = Record<string, PagePrdRecord>;
 export type PagePrdEntry = { id: string; pageId?: string; contentUrl?: string; pageUrl?: string; status?: PagePrdStatus };
 export type PagePrdConfiguration = PagePrdScope & {
     type: typeof PAGE_PRD_CONFIGURE;
@@ -226,7 +227,9 @@ export function buildPagePrdDirectory(
                 ...(record?.path.startsWith(`src/${config.targetPath}/`)
                     ? { markdownPath: record.path.slice(`src/${config.targetPath}/`.length) }
                     : {}),
-                markdown: record && !record.missing ? stripMarkdownPreviewFrontmatter(record.content) : '',
+                markdown: record && !record.missing
+                    ? renderLegacyMarkdownHighlights(stripMarkdownPreviewFrontmatter(record.content))
+                    : '',
                 readerMode: 'split',
             };
             if (!item.children.length) return node;
@@ -243,7 +246,12 @@ export function buildPagePrdDirectory(
                     ? documentContentUrl(config.projectId, annotationDocumentPath(config, document.markdownPath))
                     : undefined,
             });
-            return { ...readerDocument, title };
+            return {
+                ...readerDocument, title,
+                ...(typeof readerDocument.markdown === 'string'
+                    ? { markdown: renderLegacyMarkdownHighlights(readerDocument.markdown) }
+                    : {}),
+            };
         }
         return {
             ...document, type: 'folder', id, title,

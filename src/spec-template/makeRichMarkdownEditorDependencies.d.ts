@@ -11,7 +11,7 @@ declare module '@tiptap/core' {
 }
 
 declare module '@tiptap/extension-highlight' {
-    export const Highlight: { configure(options: any): any };
+    export const Highlight: { extend(config: any): { configure(options: any): any } };
 }
 
 declare module '@tiptap/extension-table' {

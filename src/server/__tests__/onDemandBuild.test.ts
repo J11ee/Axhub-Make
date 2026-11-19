@@ -7,6 +7,7 @@ import { fileURLToPath } from 'node:url';
 import { afterEach, describe, expect, it } from 'vitest';
 
 import { __onDemandBuildTestUtils, buildOnDemand } from '../onDemandBuild.ts';
+import { buildExportHtmlStaticFiles } from '../exportHtmlArchive.ts';
 
 const tempRoots: string[] = [];
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../..');
@@ -187,6 +188,39 @@ describe('buildOnDemand', () => {
     expect(result.metadata.usesAnnotationRuntime).toBe(true);
   });
 
+  it('embeds the offline directory runtime and stored PRD in HTML exports', async () => {
+    const root = createTempProject();
+    const prototypeDir = path.join(root, 'src', 'prototypes', 'home');
+    const entry = path.join(prototypeDir, 'index.tsx');
+    writeFile(entry, 'export default function Home() { return "Home"; }');
+    writeJson(path.join(prototypeDir, '.page-prds.json'), { dashboard: 'src/prototypes/home/docs/dashboard.md' });
+    writeFile(path.join(prototypeDir, 'docs/dashboard.md'), [
+      '# Saved dashboard requirements',
+      '![asset](/media/dashboard.png)',
+      '==旧高光==',
+      '<mark data-color="#dcfce7" style="background-color: #dcfce7; color: inherit">绿色高光</mark>',
+    ].join('\n\n'));
+
+    const options = { projectRoot: root, sourceFile: entry, entryName: 'home', displayName: 'Home', group: 'prototypes' };
+    const exported = await buildExportHtmlStaticFiles({ ...options, includePageDirectories: true });
+    const normal = await buildExportHtmlStaticFiles(options);
+    const getScript = (files: typeof exported) => files.find((file) => file.path === 'index.js')?.body.toString();
+
+    expect(getScript(exported)).toContain('axhub:prototype-route-info');
+    expect(getScript(exported)).toContain('data-axhub-page-prd-typography');
+    expect(getScript(exported)).toContain('system-ui, "Microsoft YaHei", sans-serif');
+    expect(getScript(exported)).toContain('font: 400 16px/1.6');
+    expect(getScript(exported)).toContain('margin-top: 20px');
+    expect(getScript(exported)).toContain('padding-inline:');
+    expect(getScript(exported)).not.toContain('fonts.googleapis.com');
+    expect(getScript(exported)).toContain('# Saved dashboard requirements');
+    expect(getScript(exported)).toContain('./media/dashboard.png');
+    expect(getScript(exported)).toContain('==旧高光==');
+    expect(getScript(exported)).toContain('background-color: #dcfce7; color: inherit');
+    expect(getScript(normal)).not.toContain('Saved dashboard requirements');
+    expect(getScript(normal)).not.toContain('data-axhub-page-prd-typography');
+  });
+
   it('loads Vite build when package resolution points at a CJS entry with dynamic exports', async () => {
     const root = createTempProject();
     writeFakeBuildToolchain(root);
@@ -248,7 +282,7 @@ describe('buildOnDemand', () => {
       '',
     ].join('\n'));
 
-    const result = spawnSync('pnpm', ['--filter', '@axhub/make', 'exec', 'tsx', scriptPath], {
+    const result = spawnSync(process.execPath, ['--import', 'tsx', scriptPath], {
       cwd: repoRoot,
       encoding: 'utf8',
     });

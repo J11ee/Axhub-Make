@@ -8,6 +8,7 @@ import { unzipSync } from 'fflate';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import {
+  createSidebarTreeStore,
   createServerSecretsStore,
   getConfigPath,
   getGlobalServerConfigPath,
@@ -366,6 +367,12 @@ describe('cloud publishing API', () => {
   it('builds reusable static HTML files for cloud providers and zip downloads', async () => {
     const projectRoot = createTempRoot();
     writeProject(projectRoot);
+    createSidebarTreeStore(projectRoot).setTree('prototypes', [{
+      id: 'folder',
+      kind: 'folder',
+      title: 'Folder',
+      children: [{ id: 'home', kind: 'item', itemKey: 'prototypes/home', title: '首页 & 办公' }],
+    }]);
 
     const files = await buildExportHtmlStaticFiles({
       projectRoot,
@@ -386,6 +393,10 @@ describe('cloud publishing API', () => {
     expect(files.find((file) => file.path === 'index.html')).toMatchObject({
       contentType: 'text/html; charset=utf-8',
     });
+    const html = files.find((file) => file.path === 'index.html')?.body.toString() ?? '';
+    expect(html).toContain('<title>首页 &amp; 办公原型</title>');
+    const icon = html.match(/rel="icon" type="image\/png" href="data:image\/png;base64,([^"]+)"/u)?.[1];
+    expect(icon).toBe(fs.readFileSync(new URL('../../../assets/images/favicon.ico', import.meta.url)).toString('base64'));
     expect(files.find((file) => file.path === 'index.js')).toMatchObject({
       contentType: 'application/javascript; charset=utf-8',
     });
@@ -422,7 +433,7 @@ describe('cloud publishing API', () => {
     expect(files.map((file) => file.path)).not.toContain('media/logo.txt');
   });
 
-  it('uses the declared media write target when streaming HTML export ZIPs', async () => {
+  it.each(['src/prototypes/home', 'prototypes/home'])('streams HTML with page requirements and declared media for %s', async (targetPath) => {
     const projectRoot = createTempRoot();
     writeProject(projectRoot);
     const metadataPath = getProjectMetadataPath(projectRoot);
@@ -433,6 +444,9 @@ describe('cloud publishing API', () => {
     };
     writeJson(metadataPath, metadata);
     writeFile(path.join(projectRoot, 'src/resources/assets/banner/city.jpg'), 'CITY-BANNER');
+    const prdPath = 'src/prototypes/home/docs/dashboard.md';
+    writeFile(path.join(projectRoot, prdPath), '# Dashboard requirements');
+    writeJson(path.join(projectRoot, 'src/prototypes/home/.page-prds.json'), { dashboard: prdPath });
     vi.mocked(buildOnDemand).mockResolvedValueOnce({
       jsCode: 'var UserComponent = function Home(){return "/api/media/file/banner/city.jpg";};',
       cssText: '.hero{background-image:url("/api/media/file/banner/city.jpg")}',
@@ -441,12 +455,18 @@ describe('cloud publishing API', () => {
     const server = await startTestServer(projectRoot);
 
     try {
-      const response = await fetch(scopeProjectApiUrl(projectRoot, `${server.origin}/api/export-html?path=${encodeURIComponent('prototypes/home')}`));
+      const response = await fetch(scopeProjectApiUrl(projectRoot, `${server.origin}/api/export-html?path=${encodeURIComponent(targetPath)}`));
       const body = new Uint8Array(await response.arrayBuffer());
       const entries = unzipSync(body);
       const paths = Object.keys(entries).sort();
 
       expect(response.status).toBe(200);
+      expect(buildOnDemand).toHaveBeenLastCalledWith(projectRoot, path.join(projectRoot, 'src/prototypes/home/index.tsx'), {
+        exportPageDirectories: {
+          targetPath: 'prototypes/home',
+          records: { dashboard: { path: prdPath, content: '# Dashboard requirements', missing: false } },
+        },
+      });
       expect(paths).toEqual(expect.arrayContaining([
         'index.html',
         'index.js',

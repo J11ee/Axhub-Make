@@ -11,6 +11,7 @@ import type { ManagementApiOptions } from './managementApi.ts';
 import { getMakeClientDevStatus } from './makeClientProject.ts';
 import { isRuntimeOnlyRoute } from './runtimeProxy.ts';
 import { buildPublishedReviewShellHtml } from './publishedReviewShell.ts';
+import { getPrototypeTabTitle } from './prototypeTabMetadata.ts';
 import {
   readHtmlManifest,
   readRealtimeManifest,
@@ -375,6 +376,7 @@ async function handleRealtimeRoute(
     ...(runtimeOrigin ? { makeServerOrigin: requestOrigin } : {}),
     previewPath: projectMatch.manifest.previewPath,
     commentable: projectMatch.manifest.commentable,
+    title: getPrototypeTabTitle(projectMatch.project.root, decodeSegment(runtimePath.split('/').pop() ?? '')),
   });
   res.statusCode = 200;
   res.setHeader('Content-Type', 'text/html; charset=utf-8');

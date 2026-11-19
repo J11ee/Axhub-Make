@@ -21,6 +21,7 @@ import type { UploadFunction } from 'tiptap-editor';
 import { defaultThemeConfig } from '../theme';
 import type { AssistantContextV1 } from '@/common/assistant-context/types';
 import { ReadOnlyMarkdown } from '../common/markdown/ReadOnlyMarkdown';
+import { documentInsets, documentTypography } from '../common/markdown/documentTypography';
 import { resolveMarkdownImageSrc } from '../common/markdown/markdownImage';
 import {
     buildMarkdownCommentPrompt,
@@ -195,7 +196,12 @@ function normalizeRequestedQuickEditMode(value: unknown): 'comment' | 'edit' {
     return value === 'edit' ? 'edit' : 'comment';
 }
 
+const editorDocument = '.spec-editor-shell .simple-editor-content .tiptap.ProseMirror.simple-editor';
+const viewerDocument = '.markdown-content .axhub-readonly-markdown.spec-document-preview';
+
 const markdownStyles = `
+  ${documentTypography(editorDocument)}
+  ${documentTypography(viewerDocument)}
   body {
     background: #fff;
   }
@@ -204,7 +210,7 @@ const markdownStyles = `
     gap: 40px;
     max-width: 1200px;
     margin: 0 auto;
-    padding: 40px 24px;
+    padding: ${documentInsets.top}px ${documentInsets.outer}px;
     position: relative;
     align-items: flex-start;
   }
@@ -213,7 +219,7 @@ const markdownStyles = `
     min-width: 0;
   }
   .markdown-content > div {
-    padding: 24px;
+    padding: ${documentInsets.outer}px;
   }
   .anchor-sidebar {
     width: 240px;
@@ -259,9 +265,12 @@ const markdownStyles = `
     width: 100%;
     min-height: calc(100vh - 230px);
   }
-  .spec-editor-shell .simple-editor-content .tiptap.ProseMirror.simple-editor {
+  ${editorDocument} {
     min-height: calc(100vh - 320px);
-    padding: 1.5rem 1.5rem 22vh;
+    padding: ${documentInsets.content}px ${documentInsets.content}px 22vh;
+  }
+  ${viewerDocument} {
+    padding: ${documentInsets.content}px;
   }
   .spec-editor-shell .tiptap-toolbar {
     top: 0;
@@ -275,9 +284,18 @@ const markdownStyles = `
     width: 100%;
     max-width: 100%;
   }
-  @media (max-width: 768px) {
-    .spec-editor-shell .simple-editor-content .tiptap.ProseMirror.simple-editor {
-      padding: 1rem 1rem 26vh;
+  @media (max-width: ${documentInsets.compactViewport}px) {
+    ${editorDocument} {
+      padding: ${documentInsets.compactContent}px ${documentInsets.compactContent}px 26vh;
+    }
+    ${viewerDocument} {
+      padding: ${documentInsets.compactContent}px;
+    }
+  }
+  @media (max-width: ${documentInsets.narrowViewport}px) {
+    .markdown-container,
+    .markdown-content > div {
+      padding-inline: ${documentInsets.narrowOuter}px;
     }
   }
 `;
@@ -1733,6 +1751,7 @@ export const MarkdownViewer = React.forwardRef<MarkdownViewerHandle, MarkdownVie
             <div className="markdown-content">
                 <div>
                     <ReadOnlyMarkdown
+                        className="spec-document-preview"
                         content={previewContent}
                         documentUrl={currentDoc?.url}
                         components={{

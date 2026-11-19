@@ -4,6 +4,7 @@ import type { ComponentProps, XMarkdownProps } from '@ant-design/x-markdown';
 import '@ant-design/x-markdown/themes/light.css';
 
 import { MarkdownImage, type MarkdownImageProps } from './markdownImage';
+import { renderLegacyMarkdownHighlights } from './markdownHighlight';
 
 export interface ReadOnlyMarkdownProps {
   content: string;
@@ -25,6 +26,14 @@ export function MarkdownCode(props: ComponentProps) {
   return <code className={className}>{children}</code>;
 }
 
+function MarkdownHighlight(props: ComponentProps) {
+  const color = props['data-color'];
+  if (typeof color !== 'string' || !/^#[\da-f]{6}$/iu.test(color)) {
+    return <mark>{props.children}</mark>;
+  }
+  return <mark data-color={color} style={{ backgroundColor: color, color: 'inherit' }}>{props.children}</mark>;
+}
+
 export function ReadOnlyMarkdown({
   content,
   documentUrl,
@@ -33,6 +42,7 @@ export function ReadOnlyMarkdown({
 }: ReadOnlyMarkdownProps) {
   const resolvedComponents = {
     code: MarkdownCode,
+    mark: MarkdownHighlight,
     img: (props: ComponentProps) => (
       <MarkdownImage {...props as MarkdownImageProps} documentUrl={documentUrl} />
     ),
@@ -42,7 +52,7 @@ export function ReadOnlyMarkdown({
   return (
     <XMarkdown
       className={['axhub-readonly-markdown', 'x-markdown-light', className].filter(Boolean).join(' ')}
-      content={content}
+      content={renderLegacyMarkdownHighlights(content)}
       components={resolvedComponents}
     />
   );

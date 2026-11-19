@@ -26,7 +26,7 @@ async function createServerWithPublishedResources() {
   writeProjectMetadata(projectRoot, {
     project: { id: 'public-publishing', name: 'Public Publishing' },
     resources: {
-      prototypes: [{ id: 'home', name: 'home', title: 'Home' }],
+      prototypes: [{ id: 'home', name: 'home', title: 'Home', clientUrl: 'http://localhost:5173/prototypes/home' }],
       docs: [],
       themes: [],
       data: [],
@@ -199,6 +199,8 @@ describe('local publishing public routes', () => {
       expect(response.status).toBe(200);
       expect(response.headers.get('cache-control')).toBe('no-store');
       const html = await response.text();
+      expect(html).toContain('<title>Home原型</title>');
+      expect(html).toContain('rel="icon" type="image/png" href="data:image/png;base64,');
       expect(html).toContain(
         'src="/prototypes/home?projectId=public-publishing&amp;annotationSession=1&amp;publishedShareId=share-public#page=overview"',
       );

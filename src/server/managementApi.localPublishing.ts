@@ -396,6 +396,7 @@ export function handleLocalPublishingApi(
       displayName: stringValue(resource?.title) || stringValue(resource?.name) || path.basename(path.dirname(sourceFile)),
       group: normalizedPath.replace(/^src\//u, '').split('/')[0] || 'prototypes',
       includeSource: body?.includeSource === true,
+      includePageDirectories: true,
       mediaRoot: handlers.getDeclaredResourceWriteDir?.(context, 'media') || undefined,
     });
     const snapshot = await writeHtmlSnapshot(context.project.root, files, {

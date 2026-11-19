@@ -170,6 +170,23 @@ function assertTreeTabAllowed(model: SidebarTreeStoreModel, tab: SidebarTreeTab)
   }
 }
 
+export function readPrototypeSidebarTitle(projectRoot: string, entryName: string): string | undefined {
+  const itemKey = `prototypes/${entryName}`;
+  const { storePath, legacyEntriesPath, version, model } = resolveOptions(projectRoot);
+  const store = normalizeStore(readJsonFile(storePath), version, model)
+    ?? readLegacySidebarTree(legacyEntriesPath, version, model);
+
+  function findTitle(nodes: SidebarTreeNode[]): string | undefined {
+    for (const node of nodes) {
+      if (node.itemKey === itemKey && typeof node.title === 'string' && node.title.trim()) return node.title.trim();
+      const title = node.children && findTitle(node.children);
+      if (title) return title;
+    }
+  }
+
+  return findTitle(store?.prototypes ?? []);
+}
+
 export function createSidebarTreeStore(projectRoot: string, options?: Partial<SidebarTreeStoreOptions>) {
   const resolved = resolveOptions(projectRoot, options);
 

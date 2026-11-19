@@ -17,6 +17,7 @@ import {
   writeProjectMetadata,
 } from './projects-api.helpers.ts';
 import { readRealtimeManifest } from '../lanPublishingStorage.ts';
+import { buildOnDemand } from '../onDemandBuild.ts';
 
 vi.mock('../onDemandBuild.ts', () => ({
   buildOnDemand: vi.fn(async () => ({
@@ -97,6 +98,10 @@ describe('local publishing management API', () => {
         body: JSON.stringify({ path: 'src/prototypes/home' }),
       });
       const htmlBody = await html.json() as { publishId: string; version: number; createdAt: string };
+      expect(html.status).toBe(200);
+      expect(buildOnDemand).toHaveBeenLastCalledWith(projectRoot, path.join(projectRoot, 'src/prototypes/home/index.tsx'), {
+        exportPageDirectories: { targetPath: 'prototypes/home', records: {} },
+      });
       const realtime = await fetch(realtimeEndpoint, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },

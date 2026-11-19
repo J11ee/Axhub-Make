@@ -410,7 +410,8 @@ export async function handleSourceBackedExports(
       const communicationStore = createProjectCommunicationStore(context.project.root);
       communicationStore.ensureDirectories();
       const resourceId = String(resource?.id || resource?.name || targetPath);
-      const resourceType = String(targetPath.split('/')[0] || 'prototype').replace(/s$/u, '') || 'prototype';
+      const group = targetPath.replace(/^src\//u, '').split('/')[0] || 'prototypes';
+      const resourceType = group.replace(/s$/u, '') || 'prototype';
       const reviewSubmitPrototypeId = resolvePrototypeIdForReviewSubmit({
         resource,
         targetPath,
@@ -423,8 +424,9 @@ export async function handleSourceBackedExports(
           sourceFile,
           entryName: String(resource?.name || resource?.id || path.basename(path.dirname(sourceFile))),
           displayName: String(resource?.title || resource?.name || resource?.id || path.basename(path.dirname(sourceFile))),
-          group: targetPath.split('/')[0] || 'prototypes',
+          group,
           includeSource,
+          includePageDirectories: true,
           mediaRoot: handlers.getDeclaredResourceWriteDir?.(context, 'media') || undefined,
           reviewSubmit: reviewSubmitPrototypeId
             ? createReviewSubmitInjectionOptions({

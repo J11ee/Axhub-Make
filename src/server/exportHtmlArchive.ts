@@ -16,6 +16,10 @@ import archiver from 'archiver';
 
 import { buildOnDemand } from './onDemandBuild.ts';
 import { isPathInside } from './projectCore/index.ts';
+import { createPrototypePagePrdStore } from './prototypePagePrds.ts';
+import { getPrototypeFaviconLink, getPrototypeTabTitle } from './prototypeTabMetadata.ts';
+import { preprocessAnnotationSourceMarkdown } from '../../client/vite-plugins/annotationSourceMarkdown.ts';
+import type { PagePrdRecords } from '../common/pagePrdRecords.ts';
 
 /* ------------------------------------------------------------------ */
 /*  Constants                                                          */
@@ -209,7 +213,7 @@ function generateOfflineHtml(options: {
 <html>
 <head>
   <meta charset="utf-8">
-  <title>${escapeHtml(options.title)}</title>
+  <title>${escapeHtml(options.title)}</title>${options.group === 'prototypes' ? `\n  ${getPrototypeFaviconLink()}` : ''}
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <style>
     html, body {
@@ -324,6 +328,7 @@ export interface ExportHtmlOptions {
   displayName: string;
   group: string;
   includeSource?: boolean;
+  includePageDirectories?: boolean;
   mediaRoot?: string;
   reviewSubmit?: ExportHtmlReviewSubmitOptions;
 }
@@ -548,7 +553,14 @@ export async function buildExportHtmlStaticFiles(options: ExportHtmlOptions): Pr
   const { projectRoot, sourceFile, displayName, entryName, group } = options;
   console.log(`\n📦 [导出 HTML] 开始构建: ${entryName}`);
 
-  const buildResult = await buildOnDemand(projectRoot, sourceFile);
+  const prototypeDir = path.dirname(sourceFile);
+  const relativeDir = path.relative(projectRoot, prototypeDir).split(path.sep).join('/');
+  const directories = options.includePageDirectories && group === 'prototypes' && /^src\/prototypes\/[^/]+$/u.test(relativeDir)
+    ? { targetPath: relativeDir.slice(4), records: readExportPagePrds(projectRoot, prototypeDir, relativeDir) }
+    : undefined;
+  const buildResult = directories
+    ? await buildOnDemand(projectRoot, sourceFile, { exportPageDirectories: directories })
+    : await buildOnDemand(projectRoot, sourceFile);
   const jsCode = rewriteMediaUrlsForOffline(buildResult.jsCode || '');
   const builtCssText = rewriteMediaUrlsForOffline(buildResult.cssText || '');
   console.log(`[导出 HTML] 构建完成，JS ${jsCode.length} bytes, CSS ${builtCssText.length} bytes`);
@@ -568,7 +580,7 @@ export async function buildExportHtmlStaticFiles(options: ExportHtmlOptions): Pr
   ].filter(Boolean).join('\n');
 
   const htmlContent = generateOfflineHtml({
-    title: displayName || entryName,
+    title: group === 'prototypes' ? getPrototypeTabTitle(projectRoot, entryName, displayName) : displayName || entryName,
     group,
     entryScriptPath: './index.js',
     reactPath: `./assets/${OFFLINE_REACT_FILE}`,
@@ -601,6 +613,27 @@ export async function buildExportHtmlStaticFiles(options: ExportHtmlOptions): Pr
   }
 
   return files;
+}
+
+function readExportPagePrds(projectRoot: string, prototypeDir: string, relativeDir: string): PagePrdRecords {
+  const records = createPrototypePagePrdStore(projectRoot, prototypeDir).list();
+  const prefix = `${relativeDir}/`;
+  const nodes = Object.entries(records).flatMap(([id, { path: file, missing }]) => (
+    !missing && file.startsWith(prefix)
+      ? [{ id, type: 'markdown', markdownPath: file.slice(prefix.length) }]
+      : []
+  ));
+  if (!nodes.length) return records;
+  const { source } = preprocessAnnotationSourceMarkdown({
+    projectRoot,
+    sourceFilePath: path.join(prototypeDir, 'annotation-source.json'),
+    source: { documents: { nodes } },
+    mode: 'build',
+  });
+  for (const node of source.documents.nodes as Array<{ id: string; markdown?: string }>) {
+    if (node.markdown !== undefined) records[node.id].content = node.markdown;
+  }
+  return records;
 }
 
 export async function streamExportHtmlArchive(

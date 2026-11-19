@@ -19,6 +19,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import type { Plugin } from 'vite';
 
 import { createAnnotationSourceMarkdownPlugin } from '../../client/vite-plugins/annotationSourceMarkdown.ts';
+import type { PagePrdRecords } from '../common/pagePrdRecords.ts';
 
 const requireFromCurrentModule = createRequire(import.meta.url);
 const currentModuleDir = path.dirname(fileURLToPath(import.meta.url));
@@ -37,6 +38,7 @@ export interface OnDemandBuildResult {
 
 export interface OnDemandBuildOptions {
   includeImageAssets?: boolean;
+  exportPageDirectories?: { targetPath: string; records: PagePrdRecords };
 }
 
 interface ImageDimensions {
@@ -298,6 +300,32 @@ function createSameDirectoryStylePlugin(entryFilePath: string): Plugin {
   };
 }
 
+function createExportPageDirectoriesPlugin(
+  entryFilePath: string,
+  data: NonNullable<OnDemandBuildOptions['exportPageDirectories']>,
+): Plugin {
+  const moduleId = 'virtual:axhub-export-page-directories';
+  const entryPath = resolveComparableFilePath(entryFilePath);
+  const runtimePath = path.resolve(currentModuleDir, '../dev-template/exportPageDirectories.ts').replace(/\\/gu, '/');
+  return {
+    name: 'axhub-export-page-directories',
+    resolveId(id) {
+      if (id === moduleId) return `\0${id}`;
+    },
+    load(id) {
+      if (id !== `\0${moduleId}`) return;
+      return [
+        `import { installExportPageDirectories } from ${JSON.stringify(runtimePath)};`,
+        `installExportPageDirectories(${JSON.stringify(data.targetPath)}, ${JSON.stringify(data.records)});`,
+      ].join('\n');
+    },
+    transform(code, id) {
+      if (resolveComparableFilePath(cleanModuleId(id)) !== entryPath) return;
+      return `import "${moduleId}";\n${code}`;
+    },
+  };
+}
+
 /**
  * Build a single prototype entry on-demand and return the IIFE JS + CSS.
  *
@@ -328,6 +356,7 @@ export async function buildOnDemand(
       tailwindcss(),
       createSameDirectoryStylePlugin(entryFilePath),
       createAnnotationSourceMarkdownPlugin(projectRoot, { mode: 'build' }),
+      options.exportPageDirectories && createExportPageDirectoriesPlugin(entryFilePath, options.exportPageDirectories),
       react({
         jsxRuntime: 'classic',
         babel: { configFile: false, babelrc: false },

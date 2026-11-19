@@ -39,9 +39,10 @@ function createPreviewWindowStub(initialHash = '', initialSearch = '') {
   const parent = {
     postMessage: vi.fn(),
   };
-    const windowStub = {
+  const windowStub = {
     location: { hash: initialHash, search: initialSearch },
     parent,
+    dispatchEvent: vi.fn(),
     addEventListener: vi.fn((type: string, listener: () => void) => {
       listeners.set(type, [...(listeners.get(type) || []), listener]);
     }),
@@ -80,6 +81,22 @@ describe('useHashPage route definition', () => {
       ],
       defaultPageId: 'orders-list',
     });
+  });
+
+  it('publishes the route tree for a standalone HTML export', () => {
+    const { windowStub, parent } = createPreviewWindowStub('#page=list');
+    vi.stubGlobal('window', { ...windowStub, get parent() { return this; } });
+    const route = defineHashPageRoute([{ id: 'list', title: 'List' }], {
+      pageTree: [{ kind: 'group', id: 'group', title: 'Group', children: [{ kind: 'page', id: 'list' }] }],
+    });
+
+    renderUseHashPage(route);
+
+    expect(windowStub.dispatchEvent).toHaveBeenCalledWith(expect.objectContaining({
+      type: 'axhub:prototype-route-info',
+      detail: expect.objectContaining({ pageTree: route.pageTree, activePageId: 'list' }),
+    }));
+    expect(parent.postMessage).not.toHaveBeenCalled();
   });
 
   it('drops invalid page ids and falls back to the first valid page', () => {

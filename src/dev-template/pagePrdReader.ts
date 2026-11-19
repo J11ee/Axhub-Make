@@ -1,4 +1,6 @@
 import type { PagePrdEntry, PagePrdRecords } from '../common/pagePrd';
+import { documentInsets, documentTypography } from '../common/markdown/documentTypography';
+import { createPagePrdLayout } from './pagePrdLayout';
 
 type DirectoryReaderMode = 'split' | 'full';
 
@@ -8,6 +10,8 @@ interface PagePrdReaderOptions {
   navigate(pageId: string): void;
   getCurrentPageId(): string;
   getMakeOrigin(): string;
+  directoryLabel?: string;
+  workbench?: boolean;
   onSaved?(): void;
   onEditClosed?(): void;
 }
@@ -52,8 +56,42 @@ const NODE_ICON_SELECTOR = '.axhub-annotation-directory-node__icon';
 const NATIVE_DOCUMENTS_BUTTON = 'button.axhub-annotation-edge-button[aria-label="文档目录"]';
 const DIRECTORY_BUTTON_ATTRIBUTE = 'data-axhub-page-prd-directory-button';
 const NODE_VISUAL_ATTRIBUTE = 'data-axhub-page-prd-node-visual';
-const NODE_STATUS_ATTRIBUTE = 'data-axhub-page-prd-node-status';
+const NODE_LINKED_ATTRIBUTE = 'data-axhub-page-prd-node-linked';
 const ARTICLE_STATUS_ATTRIBUTE = 'data-axhub-page-prd-article-status';
+const TYPOGRAPHY_ATTRIBUTE = 'data-axhub-page-prd-typography';
+const styledArticle = `${MARKDOWN_ID_SELECTOR}[${TYPOGRAPHY_ATTRIBUTE}]`;
+const styledBody = `${READER_BODY_SELECTOR}:has(${READER_SURFACE_SELECTOR}:not([hidden]) ${styledArticle}:not([hidden]))`;
+const readerTop = documentInsets.top + documentInsets.outer;
+const readerTypography = `
+  ${documentTypography(`${READER_SELECTOR} ${styledArticle} > .x-markdown`)}
+  ${styledBody} {
+    container-type: inline-size;
+    padding: 0 !important;
+    background: #fff;
+  }
+  ${styledBody} > ${READER_SURFACE_SELECTOR} {
+    border: 0;
+    padding: 0;
+    max-width: 1200px !important;
+  }
+  ${READER_SELECTOR} ${styledArticle} {
+    padding: ${readerTop + documentInsets.content}px
+      ${2 * documentInsets.outer + documentInsets.content}px
+      ${documentInsets.content}px;
+  }
+  @container (max-width: ${documentInsets.compactViewport}px) {
+    ${READER_SELECTOR} ${styledArticle} {
+      padding: ${readerTop + documentInsets.compactContent}px
+        ${2 * documentInsets.outer + documentInsets.compactContent}px
+        ${documentInsets.compactContent}px;
+    }
+  }
+  @container (max-width: ${documentInsets.narrowViewport}px) {
+    ${READER_SELECTOR} ${styledArticle} {
+      padding-inline: ${2 * documentInsets.narrowOuter + documentInsets.compactContent}px;
+    }
+  }
+`;
 
 const FILE_ICON = '<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8Z"/><path d="M14 2v6h6"/>';
 const FOLDER_ICON = '<path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9l-.81-1.2A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"/>';
@@ -76,7 +114,7 @@ function createIcon(paths: string): SVGSVGElement {
   return svg;
 }
 
-function createFolderIcon(expanded: boolean): SVGSVGElement {
+export function createFolderIcon(expanded: boolean): SVGSVGElement {
   const svg = createIcon(expanded ? FOLDER_OPEN_ICON : FOLDER_ICON);
   svg.style.color = '#2563eb';
   svg.style.fill = expanded ? 'rgba(59, 130, 246, 0.25)' : 'rgba(59, 130, 246, 0.2)';
@@ -84,7 +122,7 @@ function createFolderIcon(expanded: boolean): SVGSVGElement {
   return svg;
 }
 
-function createFileIcon(): SVGSVGElement {
+export function createFileIcon(): SVGSVGElement {
   const svg = createIcon(FILE_ICON);
   svg.style.color = 'currentColor';
   svg.style.fill = 'none';
@@ -138,8 +176,10 @@ function readMessageIdentity(data: Record<string, unknown>): string {
 }
 
 export function createPagePrdReaderAdapter(options: PagePrdReaderOptions) {
+  const layout = options.workbench && typeof document !== 'undefined' ? createPagePrdLayout() : undefined;
   let entries = new Map<string, PagePrdReaderEntry>();
   let shadowRoot: ShadowRoot | null = null;
+  let typographyStyle: HTMLStyleElement | undefined;
   let shadowObserver: MutationObserver | null = null;
   let documentObserver: MutationObserver | null = null;
   let syncTimer: number | null = null;
@@ -172,9 +212,13 @@ export function createPagePrdReaderAdapter(options: PagePrdReaderOptions) {
     shadowObserver?.disconnect();
     shadowRoot?.removeEventListener('click', handleShadowClick, true);
     shadowRoot?.removeEventListener('keydown', handleShadowKeydown, true);
+    typographyStyle?.remove();
     shadowRoot = nextRoot;
     if (!shadowRoot) return;
 
+    typographyStyle ??= document.createElement('style');
+    typographyStyle.textContent = readerTypography;
+    shadowRoot.append(typographyStyle);
     shadowRoot.addEventListener('click', handleShadowClick, true);
     shadowRoot.addEventListener('keydown', handleShadowKeydown, true);
     shadowObserver = new MutationObserver(scheduleSync);
@@ -309,14 +353,15 @@ export function createPagePrdReaderAdapter(options: PagePrdReaderOptions) {
       button.style.cssText = 'flex:none;white-space:nowrap;width:auto;min-width:24px;padding-inline:4px';
       button.setAttribute(DIRECT_ACTION_ATTRIBUTE, 'true');
       button.setAttribute(DIRECTORY_BUTTON_ATTRIBUTE, 'true');
-      button.textContent = '目录';
+      button.textContent = options.directoryLabel ?? '目录';
       const closeButton = header.querySelector<HTMLButtonElement>(`button[aria-label="${CLOSE_BUTTON_LABEL}"]`);
       header.insertBefore(button, closeButton);
     }
     const open = Boolean(shadowRoot.querySelector(DOCUMENT_PANEL_SELECTOR));
     button.setAttribute('aria-pressed', String(open));
-    button.setAttribute('aria-label', '文档目录');
-    button.title = open ? '隐藏文档目录' : '显示文档目录';
+    const label = options.directoryLabel ?? '文档目录';
+    button.setAttribute('aria-label', label);
+    button.title = open ? `隐藏${label}` : `显示${label}`;
   }
 
   function ensureEditMounted(): void {
@@ -635,20 +680,16 @@ export function createPagePrdReaderAdapter(options: PagePrdReaderOptions) {
         folder.setAttribute('aria-keyshortcuts', 'ArrowRight ArrowLeft');
       }
       const title = button.querySelector(NODE_TITLE_SELECTOR);
-      const reason = entryStatusReason(entry);
-      let status = button.querySelector<HTMLElement>(`[${NODE_STATUS_ATTRIBUTE}]`);
-      if (reason) {
-        if (!status) {
-          status = document.createElement('span');
-          status.setAttribute(NODE_STATUS_ATTRIBUTE, '');
-          status.style.cssText = 'display:inline-flex;flex-shrink:0;color:#b45309';
-          status.append(createIcon(STATUS_ICON));
-          button.append(status);
-        }
-        status.title = reason;
-        button.setAttribute('aria-label', `${title?.textContent ?? ''}，${reason}`);
-      } else if (status) {
-        status.remove();
+      const dot = button.querySelector(`[${NODE_LINKED_ATTRIBUTE}]`);
+      if (!entry.status && !dot) {
+        const marker = document.createElement('span');
+        marker.setAttribute(NODE_LINKED_ATTRIBUTE, '');
+        marker.title = '已关联页面需求';
+        marker.style.cssText = 'display:inline-block;flex:0 0 12px;width:12px;height:12px;border-radius:50%;background:#F7A800';
+        button.append(marker);
+        button.setAttribute('aria-label', `${title?.textContent ?? ''}，已关联页面需求`);
+      } else if (entry.status && dot) {
+        dot.remove();
         button.removeAttribute('aria-label');
       }
     }
@@ -658,6 +699,7 @@ export function createPagePrdReaderAdapter(options: PagePrdReaderOptions) {
     const article = getReaderBody()?.querySelector<HTMLElement>(MARKDOWN_ID_SELECTOR);
     const parent = article?.parentElement;
     if (!article || !parent) return;
+    article.toggleAttribute(TYPOGRAPHY_ATTRIBUTE, Boolean(entry));
     const reason = entryStatusReason(entry);
     let status = parent.querySelector<HTMLElement>(`[${ARTICLE_STATUS_ATTRIBUTE}]`);
     if (!reason) {
@@ -672,11 +714,12 @@ export function createPagePrdReaderAdapter(options: PagePrdReaderOptions) {
       status.setAttribute(ARTICLE_STATUS_ATTRIBUTE, '');
       status.style.cssText = 'display:inline-flex;color:#b45309';
       status.tabIndex = 0;
-      status.append(createIcon(STATUS_ICON));
+      if (!options.workbench) status.append(createIcon(STATUS_ICON));
       parent.insertBefore(status, article);
     }
     status.title = reason;
     status.setAttribute('aria-label', reason);
+    if (options.workbench && status.textContent !== reason) status.textContent = reason;
     if (!article.hidden) article.hidden = true;
   }
 
@@ -685,6 +728,7 @@ export function createPagePrdReaderAdapter(options: PagePrdReaderOptions) {
     connectShadowRoot();
     if (!shadowRoot) return;
 
+    if (entries.size) layout?.sync(shadowRoot);
     adoptExistingEdit();
     configurePageNodes();
     syncDirectoryButton();
@@ -791,9 +835,9 @@ export function createPagePrdReaderAdapter(options: PagePrdReaderOptions) {
     return true;
   }
 
-  function openCurrent(): boolean {
+  function openCurrent(closeDirectory = true): boolean {
     const entry = findEntryForCurrentPage();
-    return entry ? open(entry.id, false, true) : false;
+    return entry ? open(entry.id, false, closeDirectory) : false;
   }
 
   function refreshEditingPage(pages: PagePrdRecords): void {
@@ -824,6 +868,8 @@ export function createPagePrdReaderAdapter(options: PagePrdReaderOptions) {
 
   function dispose(): void {
     disposed = true;
+    layout?.dispose();
+    typographyStyle?.remove();
     documentObserver?.disconnect();
     shadowObserver?.disconnect();
     shadowRoot?.removeEventListener('click', handleShadowClick, true);
@@ -844,5 +890,5 @@ export function createPagePrdReaderAdapter(options: PagePrdReaderOptions) {
     scheduleSync();
   }
 
-  return { update, open, openCurrent, replaceSource, refreshEditingPage, dispose };
+  return { update, open, openCurrent, replaceSource, refresh: scheduleSync, refreshEditingPage, dispose };
 }

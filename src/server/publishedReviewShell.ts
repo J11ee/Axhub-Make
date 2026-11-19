@@ -1,3 +1,5 @@
+import { getPrototypeFaviconLink } from './prototypeTabMetadata.ts';
+
 export interface PublishedReviewShellOptions {
   shareId: string;
   projectId: string;
@@ -6,6 +8,7 @@ export interface PublishedReviewShellOptions {
   makeServerOrigin?: string;
   previewPath?: string;
   commentable: boolean;
+  title?: string;
 }
 
 function escapeHtml(value: unknown): string {
@@ -68,7 +71,8 @@ export function buildPublishedReviewShellHtml(options: PublishedReviewShellOptio
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>原型批注</title>
+    <title>${escapeHtml(options.title ?? '原型')}</title>
+    ${getPrototypeFaviconLink()}
     <style>
       html, body { width: 100%; height: 100%; margin: 0; overflow: hidden; background: #fff; }
       iframe { display: block; width: 100%; height: 100%; border: 0; background: #fff; }
