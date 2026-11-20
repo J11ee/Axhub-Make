@@ -6,8 +6,11 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { unzipSync } from 'fflate';
 
 import {
+  createProjectMetadataStore,
+  createSidebarTreeStore,
   getProjectMetadataPath,
 } from '../projectCore/index.ts';
+import { createPrototypePagePrdStore } from '../prototypePagePrds.ts';
 
 import {
   cleanupProjectApiTestRoots,
@@ -31,6 +34,97 @@ afterEach(() => {
 const makePackageJsonPath = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../../package.json');
 
 describe('make-server project legacy compatibility APIs', () => {
+  it('duplicates the scoped prototype and gives its saved page requirements independent files', async () => {
+    const otherRoot = createTempRoot();
+    const projectRoot = createTempRoot('axhub-原型副本-');
+    const sourceDir = path.join(projectRoot, 'src/prototypes/sales-orders');
+    const sourceFile = path.join(sourceDir, 'index.tsx');
+    fs.mkdirSync(sourceDir, { recursive: true });
+    fs.writeFileSync(sourceFile, 'export default function Orders() { return null; }');
+    const routes = 'export const pageTree = [{ title: "业务", children: [{ title: "订单", children: ["details", "list"] }] }];';
+    fs.writeFileSync(path.join(sourceDir, 'routes.ts'), routes);
+    const docsDir = path.join(projectRoot, 'src/resources');
+    fs.mkdirSync(docsDir, { recursive: true });
+    fs.writeFileSync(path.join(docsDir, '图.png'), 'image fixture');
+    fs.writeFileSync(path.join(docsDir, 'details.md'), '# 详情\n![图](图.png)\n');
+    const original = createPrototypePagePrdStore(projectRoot, sourceDir);
+    original.save('list', '# 列表');
+    original.bind('details', 'src/resources/details.md');
+    writeProjectMetadata(otherRoot, { project: { id: 'other-project', name: 'Other Project' } });
+    writeProjectMetadata(projectRoot, {
+      project: { id: 'sales-orders-project', name: 'Orders Project' },
+      resourceWriteTargets: { prototypes: { type: 'project-relative-path', path: 'src/prototypes' } },
+      resources: { prototypes: [{
+        id: 'sales-orders',
+        name: 'sales-orders',
+        title: '订单',
+        clientUrl: '/prototypes/sales-orders',
+        previewMode: 'clientRuntime',
+        filePath: 'src/prototypes/sales-orders/index.tsx',
+        pages: [{ id: 'details', title: '详情', group: '业务/订单' }, { id: 'list', title: '列表' }],
+        defaultPageId: 'details',
+      }] },
+    });
+    createSidebarTreeStore(projectRoot).setTree('prototypes', [{
+      id: 'sales-orders',
+      kind: 'item',
+      itemKey: 'prototypes/sales-orders',
+      title: 'sales orders',
+    }]);
+    const server = await startTestServer(otherRoot);
+    try {
+      await registerProject(server.origin, otherRoot, 'other-project', 'Other Project');
+      await registerProject(server.origin, projectRoot, 'sales-orders-project', 'Orders Project');
+      const url = `${server.origin}/api/prototypes/sales-orders/duplicate`;
+      const duplicate = () => fetch(scopeProjectApiUrl(projectRoot, url), { method: 'POST' });
+      const response = await duplicate();
+      expect(response.status).toBe(201);
+      expect(await response.json()).toEqual({ id: 'sales-orders-copy', title: '订单（副本）' });
+      const targetDir = path.join(projectRoot, 'src/prototypes/sales-orders-copy');
+      expect(fs.readFileSync(path.join(targetDir, 'routes.ts'), 'utf8')).toBe(routes);
+      const metadata = createProjectMetadataStore(projectRoot).getMetadata();
+      expect(metadata.resources.prototypes.find(({ id }) => id === 'sales-orders-copy')).toMatchObject({
+        clientUrl: '/prototypes/sales-orders-copy',
+        filePath: 'src/prototypes/sales-orders-copy/index.tsx',
+        pages: [{ id: 'details', title: '详情', group: '业务/订单' }, { id: 'list', title: '列表' }],
+        defaultPageId: 'details',
+      });
+      const copy = createPrototypePagePrdStore(projectRoot, targetDir);
+      expect(copy.read('list')).toMatchObject({ path: 'src/prototypes/sales-orders-copy/docs/page-prd/list.md', content: '# 列表' });
+      const details = copy.list().details;
+      expect(details.path).toBe('src/prototypes/sales-orders-copy/docs/page-prd/details/details.md');
+      const imageUrl = details.content.match(/!\[图\]\(([^)]+)\)/u)?.[1] || '';
+      const imageParams = new URLSearchParams({ path: details.path, asset: imageUrl });
+      const image = await fetch(`${server.origin}/api/projects/sales-orders-project/document-asset?${imageParams}`);
+      expect(image.status).toBe(200);
+      expect(await image.text()).toBe('image fixture');
+      copy.save('details', '# 独立编辑');
+      copy.save('list', '# 副本列表');
+      expect(original.read('details').content).toBe('# 详情\n![图](图.png)\n');
+      expect(original.read('list').content).toBe('# 列表');
+      expect(await (await duplicate()).json()).toEqual({ id: 'sales-orders-copy2', title: '订单（副本 2）' });
+      expect(fs.existsSync(path.join(otherRoot, 'src/prototypes/sales-orders-copy'))).toBe(false);
+
+      await fs.promises.unlink(path.join(docsDir, 'details.md'));
+      expect(original.read('details')).toMatchObject({ missing: true });
+      const failed = await duplicate();
+      expect(failed.status).toBe(400);
+      expect(await failed.json()).toMatchObject({ error: expect.stringContaining('src/resources/details.md') });
+      expect(fs.existsSync(path.join(projectRoot, 'src/prototypes/sales-orders-copy3'))).toBe(false);
+
+      fs.writeFileSync(path.join(docsDir, 'details.md'), '# 详情');
+      const conflictingPath = path.join(sourceDir, 'docs/page-prd/details/details.md');
+      fs.mkdirSync(path.dirname(conflictingPath), { recursive: true });
+      fs.writeFileSync(conflictingPath, '# 原型现有文件');
+      expect((await duplicate()).status).toBe(400);
+      expect(fs.existsSync(path.join(projectRoot, 'src/prototypes/sales-orders-copy3'))).toBe(false);
+      expect(createProjectMetadataStore(projectRoot).getMetadata().resources.prototypes.map(({ id }) => id))
+        .not.toContain('sales-orders-copy3');
+    } finally {
+      await server.close();
+    }
+  });
+
   it('exposes source and zip compatibility handling from its domain module', () => {
     expect(handleProjectSourceAndZipApi).toBeTypeOf('function');
   });

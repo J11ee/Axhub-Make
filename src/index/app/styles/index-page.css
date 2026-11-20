@@ -126,8 +126,8 @@
 
 .ax-sidebar-shell {
     position: relative;
-    flex: 0 0 240px;
-    width: 240px;
+    flex: 0 0 var(--ax-sidebar-width);
+    width: var(--ax-sidebar-width);
     height: 100%;
     min-height: 0;
     transition: width 0.3s, flex-basis 0.3s;
@@ -142,12 +142,40 @@
 
 .ax-sidebar-content {
     display: flex;
-    width: 240px;
+    width: var(--ax-sidebar-width);
     height: 100%;
     min-height: 0;
     overflow: hidden;
     border-right: 1px solid hsl(var(--border));
     background: hsl(var(--background));
+}
+
+.ax-sidebar-shell:has(.ax-sidebar-resize-handle:is(:active, :focus-visible)) {
+    transition: none;
+}
+
+.ax-sidebar-resize-handle {
+    position: absolute;
+    z-index: 10;
+    inset: 0 -3px 0 auto;
+    width: 7px;
+    cursor: col-resize;
+    touch-action: none;
+    user-select: none;
+}
+
+.ax-sidebar-resize-handle:active::before {
+    /* Keep the drag in the workspace when it crosses a preview iframe. */
+    content: '';
+    position: fixed;
+    inset: 0;
+}
+
+.ax-sidebar-resize-handle:is(:hover, :active, :focus-visible)::after {
+    content: '';
+    position: absolute;
+    inset: 0 2px;
+    background: hsl(var(--primary));
 }
 
 .ax-start-guide {

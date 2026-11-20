@@ -91,10 +91,15 @@ export function buildPrototypePageSegments(
   return segments;
 }
 
-export function getPrototypePageBranchKeys(segments: readonly PrototypePageSegment[]): string[] {
-  return segments.flatMap((segment) => (
-    segment.children.length ? [segment.key, ...getPrototypePageBranchKeys(segment.children)] : []
-  ));
+export function getPrototypePageBranchKeys(
+  segments: readonly PrototypePageSegment[],
+  kind?: PrototypePageSegment['kind'],
+): string[] {
+  return segments.flatMap((segment) => {
+    if (segment.children.length === 0) return [];
+    const children = getPrototypePageBranchKeys(segment.children, kind);
+    return !kind || segment.kind === kind ? [segment.key, ...children] : children;
+  });
 }
 
 export function findPrototypePageAncestorKeys(

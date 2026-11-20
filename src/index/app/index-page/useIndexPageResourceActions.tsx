@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { CanvasItem, ItemData, SidebarTreeNode, SidebarTreeTab } from '../../types';
 import type { SelectedResourceFolder, UploadedResourceFile } from '../../types/index-page.types';
 import PromptActionButton from '../../components/PromptActionButton';
@@ -23,7 +23,6 @@ import {
 } from '../index-page.helpers';
 import {
     buildDocReferencePromptDialog,
-    buildLocalSiblingPath,
     buildTemplateReferencePromptDialog,
     checkDocReferencesRequest,
     checkTemplateReferencesRequest,
@@ -214,6 +213,8 @@ export function useIndexPageResourceActions(params: any) {
     const {
         activeTab,
         activeProjectId,
+        selectedItem,
+        handleCreatePrototypeStartDraft,
         data,
         docsItems,
         canvasItems,
@@ -1178,45 +1179,45 @@ export function useIndexPageResourceActions(params: any) {
         }
     }, [appDialog, buildResourceBody, buildResourceUrl, data.prototypes, loadData, loadSidebarTree, messageApi, setSelectedItem, setSidebarTrees, sidebarTrees.prototypes]);
 
+    const duplicateInProgress = useRef(false);
     const handleDuplicateItem = useCallback(async (item: ItemData) => {
+        if (duplicateInProgress.current) return;
         const localBasePath = getPrototypeBasePathForItem(item);
         if (!localBasePath) {
             messageApi.warning('当前资源未声明本地文件路径，无法创建副本');
             return;
         }
-        const existingNames = data.prototypes.map((entry: ItemData) => entry.name);
-        const generateDuplicateName = (baseName: string) => {
-            let newName = `${baseName}-copy`;
-            let counter = 1;
-            while (existingNames.includes(newName)) {
-                counter += 1;
-                newName = `${baseName}-copy${counter}`;
-            }
-            return newName;
-        };
-        const hide = messageApi.loading('正在创建副本...', 0);
+        duplicateInProgress.current = true;
+        let hide: (() => void) | undefined;
         try {
-            const newName = generateDuplicateName(item.name);
-            const response = await fetch(buildResourceUrl('/api/copy'), {
+            const confirmed = await appDialog.confirm({
+                title: `复制原型「${item.displayName || item.name}」？`,
+                description: '将在当前项目创建独立副本，包含页面、页面结构和已保存的需求文档。',
+                confirmText: '确认复制',
+                cancelText: '取消',
+            });
+            if (!confirmed) return;
+            hide = messageApi.loading('正在创建副本...', 0);
+            const response = await fetch(buildResourceUrl(`/api/prototypes/${encodeURIComponent(item.name)}/duplicate`), {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(buildResourceBody({
-                    sourcePath: localBasePath,
-                    targetPath: buildLocalSiblingPath(localBasePath, newName),
-                })),
             });
             if (!response.ok) {
                 const payload = await response.json().catch(() => ({}));
                 throw new Error((payload as any).error || '创建副本失败');
             }
-            messageApi.success(`副本 "${newName}" 创建成功`);
+            const { title } = await response.json();
+            messageApi.success(`已复制为「${title}」`);
             await loadData();
         } catch (error: any) {
             messageApi.error(error?.message || '创建副本失败');
         } finally {
-            hide();
+            hide?.();
+            duplicateInProgress.current = false;
         }
-    }, [buildResourceBody, buildResourceUrl, data.prototypes, loadData, messageApi]);
+    }, [appDialog, buildResourceUrl, loadData, messageApi]);
+
+    const prototypeSelection = useRef({ activeProjectId, selectedItem });
+    prototypeSelection.current = { activeProjectId, selectedItem };
 
     const handleDeleteItem = useCallback(async (
         item: ItemData,
@@ -1245,7 +1246,12 @@ export function useIndexPageResourceActions(params: any) {
                     const payload = await response.json().catch(() => ({}));
                     throw new Error((payload as any).error || '删除失败');
                 }
-                setSelectedItem(null);
+                const current = prototypeSelection.current;
+                if (current.activeProjectId !== activeProjectId) return;
+                if (current.selectedItem?.name === item.name) {
+                    setPendingReturnTarget(null);
+                    handleCreatePrototypeStartDraft();
+                }
                 await loadData();
                 messageApi.success('删除成功');
             } catch (error: any) {
@@ -1334,7 +1340,7 @@ export function useIndexPageResourceActions(params: any) {
             cancelText: '取消',
             onOk: performDelete,
         });
-    }, [activeTab, buildResourceBody, buildResourceUrl, loadData, messageApi, modal, setSelectedItem]);
+    }, [activeProjectId, buildResourceBody, buildResourceUrl, handleCreatePrototypeStartDraft, loadData, messageApi, modal, setPendingReturnTarget]);
 
     const handleRenameDocItem = useCallback(async (item: ItemData, nextName: string) => {
         const currentName = item.name;

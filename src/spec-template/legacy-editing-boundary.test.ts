@@ -144,6 +144,10 @@ describe('spec-template quick editing regression boundary', () => {
     expect(viewerSource).toMatch(
       /\.spec-editor-shell \.tiptap-toolbar\s*\{[^}]*top:\s*0;[^}]*position:\s*sticky;/,
     );
+    expect(viewerSource).toContain('compactToolbar={true}');
+    expect(viewerSource).toContain('.spec-editor-shell .tiptap-toolbar > div[style*="flex: 1"]');
+    expect(viewerSource).toContain('.spec-editor-shell .tiptap-toolbar > .tiptap-separator');
+    expect(viewerSource).toContain('.spec-editor-shell .tiptap-toolbar .tiptap-button > .tiptap-button-text');
   });
 
   it('initializes text comment editing for Markdown documents', () => {
@@ -195,5 +199,12 @@ describe('spec-template quick editing regression boundary', () => {
 
     expect(viewerSource).toContain('.workbuddy/skills/explore-options/SKILL.md');
     expect(viewerSource).toContain('.workbuddy/skills/handle-comments/SKILL.md');
+  });
+
+  it('freezes embedded document save and exit actions at the top of the viewport', () => {
+    const viewerSource = readSpecTemplateSource('MarkdownViewer.tsx');
+
+    expect(viewerSource).toMatch(/\.embedded-document-actions\s*\{[^}]*position:\s*sticky;[^}]*top:\s*0;/);
+    expect(viewerSource).toMatch(/\.spec-editor-shell\.spec-editor-shell--embedded \.tiptap-toolbar\s*\{[^}]*top:\s*53px;/);
   });
 });

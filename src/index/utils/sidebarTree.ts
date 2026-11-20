@@ -67,7 +67,7 @@ function getItemResourceName(tab: SidebarTreeTab, item: ItemData): string {
     return normalizeTreeKey(item.name);
 }
 
-function resolveItemTitle(tab: SidebarTreeTab, item: ItemData, persistedTitle?: string): string {
+export function resolveItemTitle(tab: SidebarTreeTab, item: ItemData, persistedTitle?: string): string {
     const title = persistedTitle?.trim();
     if (!title) {
         return item.displayName || item.name;

@@ -156,6 +156,7 @@ export default function PagePrdManagement({
                                 <Input aria-label="已有 Markdown 文档路径" placeholder="选择文档或输入项目内 Markdown 路径" list={inputId} value={bindingPath} onChange={(event) => setBindingPath(event.target.value)} />
                                 <Button type="submit" size="sm" disabled={binding || !bindingPath.trim()}>确认关联</Button>
                             </div>
+                            <p className="text-xs text-muted-foreground">项目文档目录中的文件会移入当前原型，原路径将失效。</p>
                             {bindingError ? <p className="text-xs text-destructive" role="alert">{bindingError}</p> : null}
                         </form>
                     ) : null}

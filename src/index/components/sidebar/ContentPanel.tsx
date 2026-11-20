@@ -78,7 +78,7 @@ import { buildInternalPrototypeCommentPageScope } from '../../../common/prototyp
 import { ASSISTANT_CONTEXT_DRAG_MIME, buildAssistantContextDragPayload } from '../../domains/assistant/assistantContextDrag';
 import { buildAssistantContextItemsFromResource } from '../../domains/assistant/assistantContextPayload';
 import { getClipboardImageFiles } from '../../domains/shared/clipboardImages';
-import { createSidebarTreeItemLookup, resolveSidebarTreeItem } from '../../utils/sidebarTree';
+import { createSidebarTreeItemLookup, resolveItemTitle, resolveSidebarTreeItem } from '../../utils/sidebarTree';
 import { sidebarApi } from '../../services/sidebar.api';
 import { requireProjectScope, withProjectScope } from '../../services/projectScope';
 import { makeClientTemplateMirrorDownloadUrl, makeClientTemplatePrimaryDownloadUrl } from '../../../common/makeClientTemplate';
@@ -1815,6 +1815,7 @@ export default function ContentPanel({
     const [projectSwitcherMenuOpen, setProjectSwitcherMenuOpen] = useState(false);
     const [openRowMenuId, setOpenRowMenuId] = useState<string | null>(null);
     const rowContextTargetRef = useRef<HTMLDivElement | null>(null);
+    const duplicateAfterMenuClose = useRef<{ rowId: string; item: ItemData } | null>(null);
     const [projectSetupOpen, setProjectSetupOpen] = useState(Boolean(projectSetupRequired));
     const [projectSetupInitialMode, setProjectSetupInitialMode] = useState<'menu'>('menu');
     const [switchingProjectId, setSwitchingProjectId] = useState<string | null>(null);
@@ -1830,7 +1831,8 @@ export default function ContentPanel({
     const [expandedPrototypePageGroups, setExpandedPrototypePageGroups] = useState<{
         prototypeId: string;
         keys: Set<string>;
-    }>({ prototypeId: '', keys: new Set() });
+        treeCollapsed: boolean;
+    }>({ prototypeId: '', keys: new Set(), treeCollapsed: false });
     const knownFolderIdsRef = useRef<Set<string>>(new Set());
     const [draggingNodeId, setDraggingNodeId] = useState<string | null>(null);
     const [dropTarget, setDropTarget] = useState<{ id: string; placement: DropPlacement } | null>(null);
@@ -2040,6 +2042,10 @@ export default function ContentPanel({
         () => new Set(getPrototypePageBranchKeys(selectedPrototypePageSegments)),
         [selectedPrototypePageSegments],
     );
+    const prototypeFolderKeys = useMemo(
+        () => getPrototypePageBranchKeys(selectedPrototypePageSegments, 'group'),
+        [selectedPrototypePageSegments],
+    );
     const activePrototypePageGroupKeys = useMemo(
         () => findPrototypePageAncestorKeys(selectedPrototypePageSegments, selectedPrototypePageId),
         [selectedPrototypePageId, selectedPrototypePageSegments],
@@ -2048,26 +2054,32 @@ export default function ContentPanel({
 
     useEffect(() => {
         setExpandedPrototypePageGroups((previous) => {
-            const keys = previous.prototypeId === selectedPrototypeId
-                ? new Set([...previous.keys].filter((key) => validPrototypePageGroupKeys.has(key)))
-                : new Set<string>();
+            const isSamePrototype = previous.prototypeId === selectedPrototypeId;
+            const previousKeys = isSamePrototype ? previous.keys : undefined;
+            const keys = new Set([...(previousKeys ?? [])].filter((key) => validPrototypePageGroupKeys.has(key)));
             for (const key of activePrototypePageGroupKeys) {
                 keys.add(key);
             }
             if (
-                previous.prototypeId === selectedPrototypeId
-                && previous.keys.size === keys.size
-                && [...keys].every((key) => previous.keys.has(key))
+                previousKeys
+                && previousKeys.size === keys.size
+                && [...keys].every((key) => previousKeys.has(key))
             ) {
                 return previous;
             }
-            return { prototypeId: selectedPrototypeId, keys };
+            return { prototypeId: selectedPrototypeId, keys, treeCollapsed: isSamePrototype && previous.treeCollapsed };
         });
     }, [activePrototypePageGroupKeys, selectedPrototypeId, selectedPrototypePageId, validPrototypePageGroupKeys]);
 
+    const isCurrentPrototypeTree = expandedPrototypePageGroups.prototypeId === selectedPrototypeId;
+    const prototypeTreeCollapsed = isCurrentPrototypeTree && expandedPrototypePageGroups.treeCollapsed;
+    const hasExpandedPrototypeFolders = isCurrentPrototypeTree
+        && prototypeFolderKeys.some((key) => expandedPrototypePageGroups.keys.has(key));
+
     const togglePrototypePageGroup = useCallback((prototypeId: string, groupKey: string) => {
         setExpandedPrototypePageGroups((previous) => {
-            const keys = previous.prototypeId === prototypeId
+            const isSamePrototype = previous.prototypeId === prototypeId;
+            const keys = isSamePrototype
                 ? new Set(previous.keys)
                 : new Set<string>();
             if (keys.has(groupKey)) {
@@ -2075,7 +2087,7 @@ export default function ContentPanel({
             } else {
                 keys.add(groupKey);
             }
-            return { prototypeId, keys };
+            return { prototypeId, keys, treeCollapsed: isSamePrototype && previous.treeCollapsed };
         });
     }, []);
 
@@ -2665,8 +2677,30 @@ export default function ContentPanel({
                         onPointerDown={stopRowActivation}
                         onClick={stopRowActivation}
                         onKeyDown={stopRowActivation}
-                        onCloseAutoFocus={(e) => e.preventDefault()}
+                        onCloseAutoFocus={(event) => {
+                            event.preventDefault();
+                            const pending = duplicateAfterMenuClose.current;
+                            if (pending?.rowId === itemNodeId) {
+                                duplicateAfterMenuClose.current = null;
+                                handleDuplicateItem(pending.item);
+                            }
+                        }}
                     >
+                {isPrototypeItem ? (
+                    <DropdownMenuItem
+                        disabled={item.name !== selectedPrototypeId || !hasExpandedPrototypeFolders}
+                        onSelect={() => setExpandedPrototypePageGroups((previous) => {
+                            const keys = new Set(previous.keys);
+                            for (const key of prototypeFolderKeys) {
+                                keys.delete(key);
+                            }
+                            return { ...previous, keys };
+                        })}
+                    >
+                        <ChevronRight className="mr-2 h-4 w-4" />
+                        折叠所有文件夹
+                    </DropdownMenuItem>
+                ) : null}
                 {canRenameItem ? (
                     <DropdownMenuItem onClick={() => startItemRename(itemNodeId, node?.title || item.displayName || item.name)}>
                         <Pencil className="mr-2 h-4 w-4" />
@@ -2674,13 +2708,25 @@ export default function ContentPanel({
                     </DropdownMenuItem>
                 ) : null}
                 {canDuplicateItem ? (
-                    <DropdownMenuItem onClick={() => handleDuplicateItem(item)}>
+                    <DropdownMenuItem onSelect={() => {
+                        if (!isPrototypeItem) {
+                            handleDuplicateItem(item);
+                            return;
+                        }
+                        // Let the modal menu release its focus and pointer lock before opening the dialog.
+                        duplicateAfterMenuClose.current = {
+                            rowId: itemNodeId,
+                            item: { ...item, displayName: resolveItemTitle('prototypes', item, node?.title) },
+                        };
+                    }}>
                         <Copy className="mr-2 h-4 w-4" />
-                        创建副本
+                        {isPrototypeItem ? '复制原型' : '创建副本'}
                     </DropdownMenuItem>
                 ) : null}
                 {showLocalPathActions ? (
-                    <DropdownMenuItem onClick={() => handleCopyItemPath(item)}>
+                    <DropdownMenuItem onClick={() => handleCopyItemPath(
+                        isPrototypeItem && node?.title ? { ...item, displayName: node.title } : item,
+                    )}>
                         <LinkIcon className="mr-2 h-4 w-4" />
                         复制路径
                     </DropdownMenuItem>
@@ -2920,10 +2966,10 @@ export default function ContentPanel({
             : buildPrototypePageSegments(item.name, pages, item.pageTree);
         const expandedKeys = expandedPrototypePageGroups.prototypeId === item.name
             ? expandedPrototypePageGroups.keys
-            : new Set<string>();
+            : null;
 
         const renderSegment = (segment: PrototypePageSegment, depth: number): React.ReactNode => {
-            const expanded = expandedKeys.has(segment.key);
+            const expanded = expandedKeys?.has(segment.key) ?? false;
             const toggle = () => togglePrototypePageGroup(item.name, segment.key);
             const isSegmentSelected = selectedPageKey === segment.key;
             const row = segment.kind === 'page'
@@ -3038,6 +3084,7 @@ export default function ContentPanel({
             const isEditingThisRow = isEditingThisNode;
             const rowPaddingLeft = `${8 + depth * 8}px`;
             const isDefaultDesignItem = !isFolder && dataTab === 'themes' && item?.name === defaultThemeName;
+            const hasPrototypePages = dataTab === 'prototypes' && isSelected && selectedPrototypePageSegments.length > 0;
             const suffixElement = isDefaultDesignItem ? (
                 <span
                     data-default-design-badge
@@ -3045,6 +3092,26 @@ export default function ContentPanel({
                 >
                     默认
                 </span>
+            ) : hasPrototypePages ? (
+                <button
+                    type="button"
+                    className="shrink-0 rounded p-0.5 hover:bg-muted"
+                    aria-label={prototypeTreeCollapsed ? '展开原型' : '折叠原型'}
+                    aria-expanded={!prototypeTreeCollapsed}
+                    onClick={(event) => {
+                        event.stopPropagation();
+                        setExpandedPrototypePageGroups((previous) => ({
+                            ...previous,
+                            treeCollapsed: !previous.treeCollapsed,
+                        }));
+                    }}
+                    onDoubleClick={(event) => event.stopPropagation()}
+                    onKeyDown={(event) => event.stopPropagation()}
+                >
+                    {prototypeTreeCollapsed
+                        ? <ChevronRight className="h-3.5 w-3.5" />
+                        : <ChevronDown className="h-3.5 w-3.5" />}
+                </button>
             ) : null;
 
             let iconElement: React.ReactNode;
@@ -3304,7 +3371,7 @@ export default function ContentPanel({
                     {isFolder && isExpanded && (node.children?.length || 0) > 0
                         ? renderTreeNodes(node.children || [], depth + 1)
                         : null}
-                    {!isFolder && item && isSelected ? renderPrototypePageRows(item, depth + 1) : null}
+                    {!isFolder && item && isSelected && !prototypeTreeCollapsed ? renderPrototypePageRows(item, depth + 1) : null}
                 </div>
             );
         });

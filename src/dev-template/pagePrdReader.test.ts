@@ -39,3 +39,32 @@ describe('pagePrdReader node visual and indentation alignment', () => {
     expect(source).toContain('button.insertBefore(icon, button.querySelector(NODE_TITLE_SELECTOR))');
   });
 });
+
+describe('pagePrdReader header action buttons', () => {
+  it('renders directory and edit buttons as pure icon buttons without textual labels', () => {
+    const source = readFileSync(resolve(__dirname, './pagePrdReader.ts'), 'utf8');
+
+    // 验证目录和编辑按钮不设置文字内容
+    expect(source).not.toContain("button.textContent = options.directoryLabel ?? '目录';");
+    expect(source).not.toContain("const label = editing ? '完成' : '编辑';");
+    expect(source).toContain('button.replaceChildren(createActionIcon(DIRECTORY_ICON));');
+    expect(source).toContain('button.replaceChildren(createActionIcon(PENCIL_ICON));');
+  });
+
+  it('hides the top finish button in editing mode and relies on embedded save/exit actions', () => {
+    const source = readFileSync(resolve(__dirname, './pagePrdReader.ts'), 'utf8');
+
+    // 验证进入编辑模式时不会挂载或显示顶层完成按钮
+    expect(source).toContain('if (activeEdit) {');
+    expect(source).toContain('header.querySelector<HTMLButtonElement>(`button[${EDIT_BUTTON_ATTRIBUTE}]`)?.remove();');
+    expect(source).toContain('shadowRoot.querySelector(`button[${EDIT_BUTTON_ATTRIBUTE}]`)?.remove();');
+  });
+
+  it('applies workspace-consistent borderless styling for directory and edit buttons', () => {
+    const source = readFileSync(resolve(__dirname, './pagePrdReader.ts'), 'utf8');
+
+    expect(source).toContain('border: none !important;');
+    expect(source).toContain('border-radius: 6px !important;');
+    expect(source).toContain('background: transparent !important;');
+  });
+});

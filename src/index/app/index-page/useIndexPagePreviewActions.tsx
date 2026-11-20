@@ -322,6 +322,7 @@ export function useIndexPagePreviewActions(params: any) {
         selectedPageId,
         onPrototypePageChange,
         onPrototypeRouteInfo,
+        onPagePrdDocumentMoved,
         selectedDoc,
         selectedPrototypeSpec,
         contentModeOverride,
@@ -4289,9 +4290,11 @@ export function useIndexPagePreviewActions(params: any) {
             const payload = await response.json().catch(() => null);
             throw new Error(payload?.error || '关联页面 PRD 失败');
         }
+        const { path } = await response.json();
+        if (path !== documentPath) void onPagePrdDocumentMoved();
         await loadPagePrdRecords();
         getPreviewIframes().forEach((iframe) => configurePagePrd(iframe, { reload: true }));
-    }, [configurePagePrd, getPreviewIframes, loadPagePrdRecords, pagePrdTarget, selectedPrototypeProjectKey]);
+    }, [configurePagePrd, getPreviewIframes, loadPagePrdRecords, onPagePrdDocumentMoved, pagePrdTarget, selectedPrototypeProjectKey]);
 
     const handleOpenPagePrd = useCallback((id: string, edit: boolean) => {
         const iframe = getPrimaryPreviewIframe();

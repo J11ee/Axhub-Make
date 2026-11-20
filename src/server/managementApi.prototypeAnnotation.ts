@@ -1003,7 +1003,7 @@ export function handlePrototypeAnnotationApi(
       readJsonBody(req).then((body) => {
         const store = getStore();
         if (typeof body?.documentPath === 'string') {
-          sendCorsJson(res, { success: true, path: store.bind(pageId, body.documentPath) });
+          sendCorsJson(res, { success: true, path: store.associate(pageId, body.documentPath) });
         } else if (typeof body?.content === 'string') {
           sendCorsJson(res, { success: true, path: store.save(pageId, body.content) });
         } else {

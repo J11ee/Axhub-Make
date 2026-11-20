@@ -1592,7 +1592,7 @@ export async function handleManagementApi(req: IncomingMessage, res: ServerRespo
     updateRegisteredProjectTitle,
     getTemplatesDir,
   })) return true;
-  if (handleFileOperationsApi(req, res, activeProjectRoot, pathname, requestContext.metadataStore)) return true;
+  if (handleFileOperationsApi(req, res, activeProjectRoot, pathname, requestContext.metadataStore, getPrototypeCreateDir(requestContext))) return true;
   if (handleProjectSourceAndZipApi(req, res, options, requestContext, pathname, url, {
     resolveProjectContext,
     findProjectResourceByPath,

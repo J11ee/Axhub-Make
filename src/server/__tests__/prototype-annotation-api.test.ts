@@ -37,7 +37,7 @@ afterEach(() => {
 });
 
 describe('prototype annotation API', () => {
-  it('creates page PRD content on save and references existing Markdown without copying it', async () => {
+  it('creates page PRD content on save and associates existing Markdown inside the prototype', async () => {
     const root = createTempRoot('axhub-make-page-prd-');
     writePrototypeProject(root);
     const docs = path.join(root, 'src/prototypes/home/docs');
@@ -78,6 +78,71 @@ describe('prototype annotation API', () => {
       expect(fs.readFileSync(path.join(docs, 'existing.md'), 'utf8')).toBe('Updated by an external Agent');
       expect(fs.readdirSync(path.join(docs, 'page-prd'))).toEqual(['alpha.md']);
       expect(fs.existsSync(path.join(docs, '../annotation-source.json'))).toBe(false);
+    } finally {
+      await server.close();
+    }
+  });
+
+  it('moves external Markdown into the prototype, keeps relative assets working, and deletes it with the prototype', async () => {
+    const root = path.join(createTempRoot('axhub-make-page-prd-move-'), '中文路径', 'project');
+    writePrototypeProject(root);
+    const prototypeDir = path.join(root, 'src/prototypes/home');
+    const sharedDir = path.join(root, 'src/resources');
+    fs.mkdirSync(sharedDir, { recursive: true });
+    const documentPath = 'src/resources/现有需求.md';
+    const sharedPath = path.join(root, documentPath);
+    fs.writeFileSync(sharedPath, '# 现有需求\n![流程](流程.png)\n');
+    fs.writeFileSync(path.join(sharedDir, '流程.png'), 'image fixture');
+    const siblingDir = path.join(root, 'src/prototypes/another');
+    fs.mkdirSync(siblingDir, { recursive: true });
+    const siblingBinding = path.join(siblingDir, '.page-prds.json');
+    fs.writeFileSync(siblingBinding, JSON.stringify({ page: documentPath }));
+    const targetDir = path.join(prototypeDir, 'docs/page-prd/alpha');
+    fs.mkdirSync(targetDir, { recursive: true });
+    fs.writeFileSync(path.join(targetDir, '现有需求.md'), '# 同名现有文件');
+    const server = await startActivatedProjectServer(root);
+    const endpoint = (route: string) => scopeProjectApiUrl(root, server.origin + route);
+    const pageUrl = endpoint('/api/prototype-annotation/page-prd?targetPath=prototypes/home&pageId=alpha');
+    const associate = () => fetch(pageUrl, {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ documentPath }),
+    });
+    try {
+      const shared = await associate();
+      expect(shared.status).toBe(400);
+      expect(await shared.json()).toMatchObject({ error: expect.stringContaining('已关联其他原型') });
+      expect(fs.existsSync(sharedPath)).toBe(true);
+      fs.unlinkSync(siblingBinding);
+      const bindingsPath = path.join(prototypeDir, '.page-prds.json');
+      const previousBinding = JSON.stringify({ alpha: documentPath });
+      fs.writeFileSync(bindingsPath, previousBinding);
+      const temporaryBindingPath = `${bindingsPath}.tmp`;
+      fs.writeFileSync(temporaryBindingPath, '');
+      expect((await associate()).status).toBe(400);
+      expect(fs.existsSync(sharedPath)).toBe(true);
+      expect(fs.readFileSync(bindingsPath, 'utf8')).toBe(previousBinding);
+      expect(fs.readdirSync(targetDir)).toEqual(['现有需求.md']);
+      fs.unlinkSync(temporaryBindingPath);
+
+      const moved = await associate();
+      const movedPath = 'src/prototypes/home/docs/page-prd/alpha/现有需求-2.md';
+      expect(moved.status).toBe(200);
+      expect(await moved.json()).toEqual({ success: true, path: movedPath });
+      expect(fs.existsSync(sharedPath)).toBe(false);
+      expect(fs.readFileSync(path.join(targetDir, '现有需求.md'), 'utf8')).toBe('# 同名现有文件');
+      const content = '# 现有需求\n![流程](../../../../../resources/流程.png)\n';
+      expect(fs.readFileSync(path.join(root, movedPath), 'utf8')).toBe(content);
+      expect(await (await fetch(pageUrl)).json()).toEqual({ path: movedPath, content, missing: false });
+      const assets = new URLSearchParams({ path: movedPath, asset: '../../../../../resources/流程.png' });
+      const image = await fetch(`${server.origin}/api/projects/${encodeURIComponent(path.basename(root))}/document-asset?${assets}`);
+      expect(image.status).toBe(200);
+      expect(await image.text()).toBe('image fixture');
+
+      const deleted = await fetch(endpoint('/api/delete'), {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ path: 'src/prototypes/home' }),
+      });
+      expect(deleted.status).toBe(200);
+      expect(fs.existsSync(path.join(root, movedPath))).toBe(false);
+      expect(fs.existsSync(path.join(sharedDir, '流程.png'))).toBe(true);
     } finally {
       await server.close();
     }

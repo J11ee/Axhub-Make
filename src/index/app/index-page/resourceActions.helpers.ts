@@ -46,19 +46,6 @@ export function getProjectRelativeResourcePathForItem(item: unknown): string {
     return `${resourceRoot}${localPath}`;
 }
 
-export function buildLocalSiblingPath(localPath: string, siblingName: string): string {
-    const normalizedPath = String(localPath || '').trim().replace(/\\/g, '/').replace(/\/+$/u, '');
-    const normalizedName = String(siblingName || '').trim();
-    if (!normalizedPath || !normalizedName) {
-        return '';
-    }
-    const slashIndex = normalizedPath.lastIndexOf('/');
-    if (slashIndex < 0) {
-        return normalizedName;
-    }
-    return `${normalizedPath.slice(0, slashIndex + 1)}${normalizedName}`;
-}
-
 export function withResourceProject(url: string, projectId: string | null): string {
     return withProjectScope(url, requireProjectScope(projectId));
 }

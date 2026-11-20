@@ -6,6 +6,21 @@ function readContentPanelSource() {
   return readFileSync(resolve(__dirname, './ContentPanel.tsx'), 'utf8');
 }
 
+it('opens the prototype copy dialog after the dropdown releases focus', () => {
+  const source = readContentPanelSource();
+  expect(source).toMatch(/onCloseAutoFocus=\{\(event\) => \{\s*event\.preventDefault\(\);\s*const pending = duplicateAfterMenuClose\.current;[\s\S]*?handleDuplicateItem\(pending\.item\)/u);
+  expect(source).toContain("displayName: resolveItemTitle('prototypes', item, node?.title)");
+});
+
+it('uses the visible prototype title when copying its path', () => {
+  const source = readContentPanelSource();
+  const copyPathMenu = source.slice(source.indexOf('<DropdownMenuItem onClick={() => handleCopyItemPath('));
+
+  expect(copyPathMenu.split('</DropdownMenuItem>')[0]).toContain(
+    'isPrototypeItem && node?.title ? { ...item, displayName: node.title } : item,',
+  );
+});
+
 describe('ContentPanel make client project setup source', () => {
   it('uses one concise design-creation sentence for the empty design tree', () => {
     const source = readContentPanelSource();

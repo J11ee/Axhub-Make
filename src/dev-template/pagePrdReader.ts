@@ -54,7 +54,16 @@ const TREE_NODE_SELECTOR = 'button[data-directory-node-id]';
 const NODE_TITLE_SELECTOR = '.axhub-annotation-directory-node__title';
 const NODE_ICON_SELECTOR = '.axhub-annotation-directory-node__icon';
 const NATIVE_DOCUMENTS_BUTTON = 'button.axhub-annotation-edge-button[aria-label="文档目录"]';
+const EDIT_BUTTON_ATTRIBUTE = 'data-axhub-page-prd-edit-button';
 const DIRECTORY_BUTTON_ATTRIBUTE = 'data-axhub-page-prd-directory-button';
+const EDIT_FRAME_ATTRIBUTE = 'data-axhub-page-prd-frame';
+const ORIGINAL_BODY_STYLE_ATTRIBUTE = 'data-axhub-page-prd-original-style';
+const ORIGINAL_SURFACE_HIDDEN_ATTRIBUTE = 'data-axhub-page-prd-original-hidden';
+const PAGE_PRD_ID_PREFIX = 'make-page-prd:page:';
+const PAGE_PRD_FOLDER_PREFIX = 'make-page-prd:branch:';
+const CLOSE_BUTTON_LABEL = '关闭文档';
+const DOCUMENT_PANEL_SELECTOR = '[data-axhub-annotation-comment-target-id="documents-panel"]';
+const DIRECT_ACTION_ATTRIBUTE = 'data-axhub-annotation-direct-action';
 const NODE_VISUAL_ATTRIBUTE = 'data-axhub-page-prd-node-visual';
 const NODE_LINKED_ATTRIBUTE = 'data-axhub-page-prd-node-linked';
 const ARTICLE_STATUS_ATTRIBUTE = 'data-axhub-page-prd-article-status';
@@ -91,12 +100,44 @@ const readerTypography = `
       padding-inline: ${2 * documentInsets.narrowOuter + documentInsets.compactContent}px;
     }
   }
+  button[${DIRECTORY_BUTTON_ATTRIBUTE}],
+  button[${EDIT_BUTTON_ATTRIBUTE}] {
+    display: inline-flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    width: 28px !important;
+    min-width: 28px !important;
+    height: 28px !important;
+    padding: 0 !important;
+    margin: 0 !important;
+    border: none !important;
+    outline: none !important;
+    background: transparent !important;
+    box-shadow: none !important;
+    border-radius: 6px !important;
+    color: #4b5563 !important;
+    cursor: pointer !important;
+    transition: background-color 0.15s ease, color 0.15s ease !important;
+    line-height: 1 !important;
+    box-sizing: border-box !important;
+  }
+  button[${DIRECTORY_BUTTON_ATTRIBUTE}]:hover,
+  button[${EDIT_BUTTON_ATTRIBUTE}]:hover {
+    background: rgba(0, 0, 0, 0.06) !important;
+    color: #111827 !important;
+  }
+  button[${DIRECTORY_BUTTON_ATTRIBUTE}][aria-pressed="true"] {
+    background: rgba(37, 99, 235, 0.08) !important;
+    color: #2563eb !important;
+  }
 `;
 
 const FILE_ICON = '<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8Z"/><path d="M14 2v6h6"/>';
 const FOLDER_ICON = '<path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9l-.81-1.2A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"/>';
 const FOLDER_OPEN_ICON = '<path d="m6 14 1.5-2.9A2 2 0 0 1 9.24 10H20a2 2 0 0 1 1.94 2.5l-1.54 6a2 2 0 0 1-1.95 1.5H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h3.9a2 2 0 0 1 1.69.9l.81 1.2a2 2 0 0 0 1.67.9H18a2 2 0 0 1 2 2v2"/>';
 const STATUS_ICON = '<circle cx="12" cy="12" r="10"/><path d="M12 8v4m0 4h.01"/>';
+const DIRECTORY_ICON = '<path d="M21 12h-8"/><path d="M21 6H8"/><path d="M21 18h-8"/><path d="M3 6v4c0 1.1.9 2 2 2h3"/><path d="M3 10v6c0 1.1.9 2 2 2h3"/>';
+const PENCIL_ICON = '<path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/><path d="m15 5 4 4"/>';
 
 function createIcon(paths: string): SVGSVGElement {
   const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
@@ -106,6 +147,22 @@ function createIcon(paths: string): SVGSVGElement {
   svg.setAttribute('fill', 'none');
   svg.setAttribute('stroke', 'currentColor');
   svg.setAttribute('stroke-width', '2');
+  svg.setAttribute('stroke-linecap', 'round');
+  svg.setAttribute('stroke-linejoin', 'round');
+  svg.setAttribute('aria-hidden', 'true');
+  svg.style.flexShrink = '0';
+  svg.innerHTML = paths;
+  return svg;
+}
+
+function createActionIcon(paths: string): SVGSVGElement {
+  const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+  svg.setAttribute('viewBox', '0 0 24 24');
+  svg.setAttribute('width', '15');
+  svg.setAttribute('height', '15');
+  svg.setAttribute('fill', 'none');
+  svg.setAttribute('stroke', 'currentColor');
+  svg.setAttribute('stroke-width', '1.8');
   svg.setAttribute('stroke-linecap', 'round');
   svg.setAttribute('stroke-linejoin', 'round');
   svg.setAttribute('aria-hidden', 'true');
@@ -129,15 +186,6 @@ export function createFileIcon(): SVGSVGElement {
   svg.style.stroke = 'currentColor';
   return svg;
 }
-const EDIT_BUTTON_ATTRIBUTE = 'data-axhub-page-prd-edit-button';
-const EDIT_FRAME_ATTRIBUTE = 'data-axhub-page-prd-frame';
-const ORIGINAL_BODY_STYLE_ATTRIBUTE = 'data-axhub-page-prd-original-style';
-const ORIGINAL_SURFACE_HIDDEN_ATTRIBUTE = 'data-axhub-page-prd-original-hidden';
-const PAGE_PRD_ID_PREFIX = 'make-page-prd:page:';
-const PAGE_PRD_FOLDER_PREFIX = 'make-page-prd:branch:';
-const CLOSE_BUTTON_LABEL = '关闭文档';
-const DOCUMENT_PANEL_SELECTOR = '[data-axhub-annotation-comment-target-id="documents-panel"]';
-const DIRECT_ACTION_ATTRIBUTE = 'data-axhub-annotation-direct-action';
 
 function entryStatusReason(entry: PagePrdReaderEntry | undefined): string {
   if (entry?.status === 'missing') return '已绑定的 PRD 文件不存在';
@@ -318,12 +366,16 @@ export function createPagePrdReaderAdapter(options: PagePrdReaderOptions) {
   }
 
   function mountEditButton(header: HTMLElement, entry: PagePrdReaderEntry): void {
+    if (activeEdit) {
+      header.querySelector<HTMLButtonElement>(`button[${EDIT_BUTTON_ATTRIBUTE}]`)?.remove();
+      return;
+    }
     let button = header.querySelector<HTMLButtonElement>(`button[${EDIT_BUTTON_ATTRIBUTE}]`);
     if (!button) {
       button = document.createElement('button');
       button.type = 'button';
       button.className = 'we-runtime-prop-panel__header-action ant-btn ant-btn-text ant-btn-sm';
-      button.style.cssText = 'flex:none;white-space:nowrap;width:auto;min-width:24px;padding-inline:4px';
+      button.style.cssText = 'display:inline-flex;align-items:center;justify-content:center;width:28px;height:28px;min-width:28px;padding:0;margin:0;border:none;outline:none;background:transparent;box-shadow:none;border-radius:6px;cursor:pointer;flex:none;line-height:1;box-sizing:border-box;color:#4b5563;';
       button.setAttribute(DIRECT_ACTION_ATTRIBUTE, 'true');
       button.setAttribute(EDIT_BUTTON_ATTRIBUTE, 'true');
       const closeButton = header.querySelector<HTMLButtonElement>(`button[aria-label="${CLOSE_BUTTON_LABEL}"]`);
@@ -331,11 +383,11 @@ export function createPagePrdReaderAdapter(options: PagePrdReaderOptions) {
     }
 
     button.dataset.documentId = entry.id;
-    const editing = activeEdit?.entry.id === entry.id;
-    const label = editing ? '完成' : '编辑';
-    if (button.textContent !== label) button.textContent = label;
-    button.setAttribute('aria-label', editing ? '退出文档编辑' : '编辑需求文档');
-    button.title = editing ? '退出文档编辑' : '编辑需求文档';
+    if (!button.querySelector('svg')) {
+      button.replaceChildren(createActionIcon(PENCIL_ICON));
+    }
+    button.setAttribute('aria-label', '编辑需求文档');
+    button.title = '编辑需求文档';
   }
 
   function syncDirectoryButton(): void {
@@ -350,12 +402,14 @@ export function createPagePrdReaderAdapter(options: PagePrdReaderOptions) {
       button = document.createElement('button');
       button.type = 'button';
       button.className = 'we-runtime-prop-panel__header-action ant-btn ant-btn-text ant-btn-sm';
-      button.style.cssText = 'flex:none;white-space:nowrap;width:auto;min-width:24px;padding-inline:4px';
+      button.style.cssText = 'display:inline-flex;align-items:center;justify-content:center;width:28px;height:28px;min-width:28px;padding:0;margin:0;border:none;outline:none;background:transparent;box-shadow:none;border-radius:6px;cursor:pointer;flex:none;line-height:1;box-sizing:border-box;color:#4b5563;';
       button.setAttribute(DIRECT_ACTION_ATTRIBUTE, 'true');
       button.setAttribute(DIRECTORY_BUTTON_ATTRIBUTE, 'true');
-      button.textContent = options.directoryLabel ?? '目录';
       const closeButton = header.querySelector<HTMLButtonElement>(`button[aria-label="${CLOSE_BUTTON_LABEL}"]`);
       header.insertBefore(button, closeButton);
+    }
+    if (!button.querySelector('svg')) {
+      button.replaceChildren(createActionIcon(DIRECTORY_ICON));
     }
     const open = Boolean(shadowRoot.querySelector(DOCUMENT_PANEL_SELECTOR));
     button.setAttribute('aria-pressed', String(open));
@@ -394,7 +448,9 @@ export function createPagePrdReaderAdapter(options: PagePrdReaderOptions) {
     }
     if (edit.iframe.parentElement !== body) body.append(edit.iframe);
     const header = shadowRoot.querySelector<HTMLElement>(READER_HEADER_SELECTOR);
-    if (header) mountEditButton(header, edit.entry);
+    if (header) {
+      header.querySelector<HTMLButtonElement>(`button[${EDIT_BUTTON_ATTRIBUTE}]`)?.remove();
+    }
   }
 
   function createEdit(entry: PagePrdReaderEntry): boolean {
@@ -740,6 +796,7 @@ export function createPagePrdReaderAdapter(options: PagePrdReaderOptions) {
         requestEditClose('navigation', { entry: routeEntry, followRoute: true });
         return;
       }
+      shadowRoot.querySelector(`button[${EDIT_BUTTON_ATTRIBUTE}]`)?.remove();
       ensureEditMounted();
       return;
     }

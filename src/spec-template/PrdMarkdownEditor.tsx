@@ -146,7 +146,11 @@ function TextColorToolbar({ editor }: { editor: MarkdownTextColorEditor }) {
                         disabled={!editor.isEditable}
                         onMouseDown={(event) => event.preventDefault()}
                     >
-                        <Palette className="tiptap-button-icon" aria-hidden="true" />
+                        <Palette
+                            className="tiptap-button-icon"
+                            style={currentColor ? { color: currentColor } : undefined}
+                            aria-hidden="true"
+                        />
                         <span className="tiptap-button-text">文字颜色</span>
                     </button>
                 </DropdownMenu.Trigger>

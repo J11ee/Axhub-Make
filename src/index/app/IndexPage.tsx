@@ -580,6 +580,8 @@ export default function IndexPage({
     const resources = useIndexPageResourceActions({
         activeTab,
         activeProjectId: workspace.activeProjectId,
+        selectedItem,
+        handleCreatePrototypeStartDraft,
         data: workspace.data,
         docsItems: workspace.docsItems,
         canvasItems: workspace.canvasItems,
@@ -1219,6 +1221,7 @@ export default function IndexPage({
 
     const preview = useIndexPagePreviewActions({
         projectId: workspace.activeProjectId,
+        onPagePrdDocumentMoved: workspace.loadData,
         activeTab,
         collapsed,
         setCollapsed,

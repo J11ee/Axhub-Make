@@ -11,6 +11,7 @@ import {
 } from './projectCore/index.ts';
 
 import { readJsonBody, sendJson } from './http.ts';
+import { duplicatePrototype } from './prototypeDuplicate.ts';
 
 interface MetadataStore {
   getMetadata: () => ProjectMetadata;
@@ -164,7 +165,29 @@ export function handleFileOperationsApi(
   projectRoot: string,
   pathname: string,
   metadataStore?: MetadataStore | null,
+  prototypeCreateDir?: string | null,
 ): boolean {
+  const duplicateMatch = pathname.match(/^\/api\/prototypes\/([^/]+)\/duplicate$/u);
+  if (duplicateMatch) {
+    const id = decodePathSegment(duplicateMatch[1]);
+    if (req.method !== 'POST') {
+      sendJson(res, { error: 'Method not allowed' }, { status: 405 });
+    } else if (isInvalidFileOperationName(id) || id.startsWith('.') || id.includes('\0')) {
+      sendJson(res, { error: '原型 ID 无效' }, { status: 400 });
+    } else if (!metadataStore || !prototypeCreateDir) {
+      sendJson(res, { error: '当前项目不支持复制原型' }, { status: 403 });
+    } else {
+      void duplicatePrototype(projectRoot, prototypeCreateDir, metadataStore, id).then((result) => {
+        if (!result) {
+          sendJson(res, { error: '源原型不存在或目录不可用' }, { status: 404 });
+          return;
+        }
+        sendJson(res, result, { status: 201 });
+      }).catch((error) => sendJson(res, { error: error.message }, { status: 400 }));
+    }
+    return true;
+  }
+
   const prototypeDisplayNameMatch = pathname.match(/^\/api\/prototypes\/([^/]+)$/u);
   if (prototypeDisplayNameMatch) {
     if (req.method !== 'POST' && req.method !== 'PUT') {

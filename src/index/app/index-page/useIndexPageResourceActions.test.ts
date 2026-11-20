@@ -25,8 +25,6 @@ describe('useIndexPageResourceActions source', () => {
     expect(source).toContain('fetch(buildResourceUrl(`/api/prototypes/${encodeURIComponent(item.name)}`)');
     expect(source).toContain('body: JSON.stringify(buildResourceBody({ displayName: trimmedName }))');
     expect(source).not.toContain('body: JSON.stringify({ path: localBasePath, newName: trimmedName })');
-    expect(source).toContain('sourcePath: localBasePath,');
-    expect(source).toContain('targetPath: buildLocalSiblingPath(localBasePath, newName),');
     expect(source).toContain('const deleteTargetLabel = item.displayName || item.name;');
     expect(source).toContain('getIdeTargetPath={() => localBasePath}');
     expect(source).toContain('setCurrentVersionItem({ ...item, filePath: localBasePath });');
@@ -65,7 +63,6 @@ describe('useIndexPageResourceActions source', () => {
     expect(rootSource).toContain('buildDocReferencePromptDialog(dialogParams)');
     expect(rootSource).toContain('buildTemplateReferencePromptDialog(dialogParams)');
     expect(rootSource).not.toContain('function ensureStringArray');
-    expect(rootSource).not.toContain('function buildLocalSiblingPath');
     expect(rootSource).not.toContain('generateRenameDocReferencePrompt');
     expect(rootSource).not.toContain('generateDeleteTemplateReferencePrompt');
     expect(combinedSource).toContain("fetch(withResourceProject('/api/docs/check-references'");
@@ -114,12 +111,18 @@ describe('useIndexPageResourceActions source', () => {
     expect(rootSource).not.toContain('fetch(`/api/data/tables/${encodeURIComponent(item.fileName)}`');
     expect(prototypeRenameSource).toContain('fetch(buildResourceUrl(`/api/prototypes/${encodeURIComponent(item.name)}`),');
     expect(prototypeRenameSource).toContain('body: JSON.stringify(buildResourceBody({ displayName: trimmedName }))');
-    expect(prototypeDuplicateSource).toContain("fetch(buildResourceUrl('/api/copy'),");
-    expect(prototypeDuplicateSource).toContain('body: JSON.stringify(buildResourceBody({');
+    expect(prototypeDuplicateSource).toContain("fetch(buildResourceUrl(`/api/prototypes/${encodeURIComponent(item.name)}/duplicate`),");
+    expect(prototypeDuplicateSource).toContain('await loadData();');
+    expect(prototypeDuplicateSource).toMatch(
+      /if \(duplicateInProgress\.current\) return;[\s\S]*duplicateInProgress\.current = true;[\s\S]*await appDialog\.confirm\([\s\S]*if \(!confirmed\) return;[\s\S]*await fetch\([\s\S]*finally \{[\s\S]*duplicateInProgress\.current = false;/u,
+    );
     expect(prototypeDeleteSource).toContain("fetch(buildResourceUrl('/api/items/check-references'),");
     expect(prototypeDeleteSource).toContain('body: JSON.stringify(buildResourceBody({ itemType, itemName: item.name }))');
     expect(prototypeDeleteSource).toContain("fetch(buildResourceUrl('/api/delete'),");
     expect(prototypeDeleteSource).toContain('body: JSON.stringify(buildResourceBody({ path: localBasePath }))');
+    expect(prototypeDeleteSource).toMatch(/if \(current\.selectedItem\?\.name === item\.name\) \{\s*setPendingReturnTarget\(null\);\s*handleCreatePrototypeStartDraft\(\);\s*\}\s*await loadData\(\)/u);
+    expect(prototypeDeleteSource.indexOf('handleCreatePrototypeStartDraft();')).toBeGreaterThan(prototypeDeleteSource.indexOf('if (!response.ok)'));
+    expect(prototypeDeleteSource).not.toContain('setSelectedItem(null)');
     expect(templateRenameSource).toContain('fetch(buildResourceUrl(`/api/docs/templates/${encodeURIComponent(currentName)}`),');
     expect(templateRenameSource).toContain('body: JSON.stringify(buildResourceBody({ newBaseName: trimmedName }))');
     expect(docResourceSource).toContain('fetch(buildResourceUrl(`/api/docs/${encodeURIComponent(currentResourcePath)}`),');

@@ -205,6 +205,15 @@ const markdownStyles = `
   body {
     background: #fff;
   }
+  .embedded-document-actions {
+    position: sticky;
+    top: 0;
+    z-index: 30;
+    background: #ffffff;
+  }
+  .spec-editor-shell.spec-editor-shell--embedded .tiptap-toolbar {
+    top: 53px;
+  }
   .markdown-container {
     display: flex;
     gap: 40px;
@@ -276,13 +285,81 @@ const markdownStyles = `
     top: 0;
     bottom: auto !important;
     position: sticky;
+    display: flex;
     flex-wrap: wrap;
+    align-items: center;
+    gap: 4px 6px;
     height: auto;
+    min-height: 2.5rem;
+    padding: 5px 8px;
     border-radius: 8px;
     z-index: 24;
     margin-bottom: 12px;
     width: 100%;
     max-width: 100%;
+    background: var(--tt-toolbar-bg-color, white);
+    border: 1px solid var(--tt-toolbar-border-color, #e5e7eb);
+    box-sizing: border-box;
+    box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.03);
+  }
+  .spec-editor-shell .tiptap-toolbar > div[style*="flex: 1"],
+  .spec-editor-shell .tiptap-toolbar > div[style*="flex:1"] {
+    display: none !important;
+  }
+  .spec-editor-shell .tiptap-toolbar > .tiptap-separator {
+    display: none !important;
+  }
+  .spec-editor-shell .tiptap-toolbar .tiptap-toolbar-group {
+    display: inline-flex;
+    align-items: center;
+    flex-shrink: 0;
+    gap: 2px;
+    padding-right: 6px;
+    margin-right: 2px;
+    border-right: 1px solid var(--tt-toolbar-border-color, rgba(0, 0, 0, 0.08));
+    box-sizing: border-box;
+  }
+  .spec-editor-shell .tiptap-toolbar .tiptap-toolbar-group:last-child {
+    border-right: none;
+    padding-right: 0;
+    margin-right: 0;
+  }
+  .spec-editor-shell .tiptap-toolbar .tiptap-button {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 2rem;
+    height: 2rem;
+    padding: 0 0.375rem;
+    box-sizing: border-box;
+    border-radius: var(--tt-radius-md, 0.375rem);
+  }
+  .spec-editor-shell .tiptap-toolbar .tiptap-button > .tiptap-button-text {
+    display: none !important;
+  }
+  .spec-editor-shell .tiptap-toolbar .tiptap-toolbar-group:has([aria-label*="撤销"], [tooltip*="撤销"]) {
+    order: 10;
+  }
+  .spec-editor-shell .tiptap-toolbar .tiptap-toolbar-group:has([aria-label*="标题"], [tooltip*="标题"]) {
+    order: 20;
+  }
+  .spec-editor-shell .tiptap-toolbar .tiptap-toolbar-group[aria-label="表格操作"] {
+    order: 30;
+  }
+  .spec-editor-shell .tiptap-toolbar .tiptap-toolbar-group:has(input[type="file"], [tooltip*="图片"], [aria-label*="图片"]) {
+    order: 40;
+  }
+  .spec-editor-shell .tiptap-toolbar .tiptap-toolbar-group:has([aria-label*="加粗"], [tooltip*="加粗"]) {
+    order: 50;
+  }
+  .spec-editor-shell .tiptap-toolbar .tiptap-toolbar-group[aria-label="文字颜色"] {
+    order: 60;
+  }
+  .spec-editor-shell .tiptap-toolbar .tiptap-toolbar-group:has([aria-label*="上标"], [tooltip*="上标"]) {
+    order: 70;
+  }
+  .spec-editor-shell .tiptap-toolbar .tiptap-toolbar-group:has([aria-label*="对齐"], [tooltip*="对齐"]) {
+    order: 80;
   }
   @media (max-width: ${documentInsets.compactViewport}px) {
     ${editorDocument} {
@@ -1831,7 +1908,7 @@ export const MarkdownViewer = React.forwardRef<MarkdownViewerHandle, MarkdownVie
 
     const renderEditorContent = () => (
         <div
-            className="markdown-container spec-editor-shell"
+            className={`markdown-container spec-editor-shell${embeddedContext ? ' spec-editor-shell--embedded' : ''}`}
             onBeforeInputCapture={markCurrentEditorUserChange}
             onInputCapture={markCurrentEditorUserChange}
             onKeyDownCapture={markCurrentEditorUserChange}
@@ -1846,6 +1923,7 @@ export const MarkdownViewer = React.forwardRef<MarkdownViewerHandle, MarkdownVie
                         contentType="markdown"
                         editable={isEditing && !(embeddedContext && isSaving)}
                         showThemeToggle={false}
+                        compactToolbar={true}
                         toolbarPreset="full"
                         imageUpload={uploadImageToCurrentDoc}
                         imageSrcResolver={resolveCurrentDocumentImageSrc}
@@ -1865,6 +1943,9 @@ export const MarkdownViewer = React.forwardRef<MarkdownViewerHandle, MarkdownVie
                     <div
                         className="embedded-document-actions"
                         style={{
+                            position: 'sticky',
+                            top: 0,
+                            zIndex: 30,
                             display: 'flex',
                             alignItems: 'center',
                             justifyContent: 'space-between',
@@ -1872,6 +1953,7 @@ export const MarkdownViewer = React.forwardRef<MarkdownViewerHandle, MarkdownVie
                             padding: '10px 16px',
                             borderBottom: '1px solid #e5e7eb',
                             background: '#fff',
+                            boxShadow: '0 1px 3px rgba(0, 0, 0, 0.05)',
                         }}
                     >
                         <div style={{ minWidth: 0 }}>
